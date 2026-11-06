@@ -1,13 +1,15 @@
 import { ArrowLeft, Download, FileText, LockKeyhole, PencilLine, Trash2 } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import remarkGfm from 'remark-gfm'
-import type { Article } from '../app/types'
+import type { Article, ArticleListItem } from '../app/types'
 import { usePageMeta } from '../app/usePageMeta'
 import { formatDate } from '../components/ArticleCard'
+import { ArticleConnections } from '../components/ArticleConnections'
+import { ArticleToc } from '../components/ArticleToc'
+import { MarkdownArticle } from '../components/MarkdownArticle'
 import { ErrorState, LoadingState } from '../components/States'
-import { deleteArticle, getArticleBySlug } from '../features/articles/articleService'
+import { deleteArticle, getArticleBySlug, listPublishedArticles } from '../features/articles/articleService'
+import { selectAdjacent, selectRelated } from '../features/articles/articleRelations'
 import { useAuth } from '../features/auth/AuthProvider'
 import { createDownloadUrl, formatFileSize } from '../features/storage/storageService'
 
@@ -16,6 +18,7 @@ export function ArticlePage() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const [article, setArticle] = useState<Article | null>(null)
+  const [siblings, setSiblings] = useState<ArticleListItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [coverUrl, setCoverUrl] = useState('')
@@ -45,6 +48,18 @@ export function ArticlePage() {
   }, [slug])
 
   useEffect(() => { void load() }, [load])
+
+  // 相关文章与上下篇：独立请求，失败时静默降级，不影响正文阅读
+  useEffect(() => {
+    let active = true
+    listPublishedArticles()
+      .then((items) => { if (active) setSiblings(items) })
+      .catch(() => { if (active) setSiblings([]) })
+    return () => { active = false }
+  }, [])
+
+  const { previous, next } = useMemo(() => selectAdjacent(siblings, slug), [siblings, slug])
+  const related = useMemo(() => (article ? selectRelated(siblings, article) : []), [siblings, article])
 
   useEffect(() => {
     if (!article || !user) return
@@ -133,18 +148,14 @@ export function ArticlePage() {
 
       <div className="article-layout">
         <aside className="article-aside">
+          <ArticleToc content={article.content} />
           <span>NOTE</span>
           <p>文章使用 Markdown 编写，内容从云端数据库实时读取。</p>
         </aside>
-        <div className="markdown-body">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            components={{ img: ({ node, ...props }) => <img {...props} loading="lazy" decoding="async" /> }}
-          >
-            {article.content}
-          </ReactMarkdown>
-        </div>
+        <MarkdownArticle content={article.content} />
       </div>
+
+      <ArticleConnections previous={previous} next={next} related={related} />
 
       {article.attachments.length > 0 && (
         <section className="attachment-section">

@@ -41,7 +41,7 @@ export default defineConfig({
           if (name.startsWith('react-router')) return 'router'
           if (MARKDOWN_PACKAGES.has(name)) return 'markdown'
           if (name === 'react' || name === 'react-dom' || name === 'scheduler') return 'react'
-          if (/^(react-markdown|remark|micromark|mdast|hast|unist|unified|vfile)/.test(name)) return 'markdown'
+          if (/^(react-markdown|remark|micromark|mdast|hast|unist|unified|vfile|rehype|lowlight|highlight\.js|github-slugger)/.test(name)) return 'markdown'
           return 'vendor'
         },
       },
