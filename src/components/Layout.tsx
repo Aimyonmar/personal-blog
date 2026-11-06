@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../features/auth/AuthProvider'
 import { AuthDialog } from './AuthDialog'
+import { SearchCommand } from './SearchCommand'
 import { SideToolbar } from './SideToolbar'
 
 const navItems = [
@@ -52,6 +53,7 @@ export function Layout() {
         </nav>
 
         <div className="header-actions">
+          <SearchCommand />
           {loading ? (
             <span className="auth-loading">账号加载中</span>
           ) : user ? (
