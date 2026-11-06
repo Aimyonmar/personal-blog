@@ -40,9 +40,14 @@ export function Layout() {
             </NavLink>
           ))}
           {user && (
-            <NavLink to="/write" onClick={() => setMenuOpen(false)}>
-              写文章
-            </NavLink>
+            <>
+              <NavLink to="/write" onClick={() => setMenuOpen(false)}>
+                写文章
+              </NavLink>
+              <NavLink to="/drafts" onClick={() => setMenuOpen(false)}>
+                草稿箱
+              </NavLink>
+            </>
           )}
         </nav>
 

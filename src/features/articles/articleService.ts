@@ -58,6 +58,18 @@ export async function listPublishedArticles(tag?: string): Promise<ArticleListIt
   return items
 }
 
+export async function listDraftArticles(ownerId: string): Promise<ArticleListItem[]> {
+  const { data, error } = await (await postsTable())
+    .from('blog_posts')
+    .select(LIST_COLUMNS)
+    .eq('status', 'draft')
+    .eq('owner_id', ownerId)
+    .order('updated_at', { ascending: false })
+
+  if (error) fail(error, '草稿加载失败。')
+  return (data ?? []) as ArticleListItem[]
+}
+
 export async function getArticleBySlug(slug: string) {
   const { data, error } = await (await postsTable())
     .from('blog_posts')

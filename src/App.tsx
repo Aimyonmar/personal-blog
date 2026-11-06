@@ -7,6 +7,7 @@ import { HomePage } from './pages/HomePage'
 
 const ArticlePage = lazy(() => import('./pages/ArticlePage').then((module) => ({ default: module.ArticlePage })))
 const EditorPage = lazy(() => import('./pages/EditorPage').then((module) => ({ default: module.EditorPage })))
+const DraftsPage = lazy(() => import('./pages/DraftsPage').then((module) => ({ default: module.DraftsPage })))
 const TagsPage = lazy(() => import('./pages/TagsPage').then((module) => ({ default: module.TagsPage })))
 const AboutPage = lazy(() => import('./pages/AboutPage').then((module) => ({ default: module.AboutPage })))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage').then((module) => ({ default: module.NotFoundPage })))
@@ -32,6 +33,7 @@ export default function App() {
             <Route path="about" element={<AboutPage />} />
             <Route path="write" element={<EditorPage />} />
             <Route path="write/:slug" element={<EditorPage />} />
+            <Route path="drafts" element={<DraftsPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Routes>

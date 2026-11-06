@@ -1,5 +1,5 @@
 import { FileUp, ImagePlus, LockKeyhole, PencilLine, Save, Send, X } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { useNavigate, useParams } from 'react-router-dom'
 import remarkGfm from 'remark-gfm'
@@ -8,6 +8,15 @@ import { usePageMeta } from '../app/usePageMeta'
 import { buildSlug, estimateReadTime } from '../features/articles/articleMetrics'
 import { createArticle, getArticleBySlug, updateArticle } from '../features/articles/articleService'
 import { useAuth } from '../features/auth/AuthProvider'
+import {
+  clearLocalDraft,
+  editorDraftKey,
+  formatSavedAt,
+  readLocalDraft,
+  writeLocalDraft,
+  type LocalDraft,
+} from '../features/editor/localDraft'
+import { imageAltFromName, imageToMarkdownDataUrl, markdownImageSnippet } from '../features/editor/inlineImage'
 import { formatFileSize, uploadBlogFile } from '../features/storage/storageService'
 
 const STARTER_CONTENT = '# 从这里开始\n\n使用 **Markdown** 写下你的想法。\n\n- 记录问题\n- 写清过程\n- 留下结论'
@@ -30,6 +39,16 @@ export function EditorPage() {
   const [message, setMessage] = useState('')
   const [loadingArticle, setLoadingArticle] = useState(isEditing)
   const [current, setCurrent] = useState<Article | null>(null)
+  const [restoreCandidate, setRestoreCandidate] = useState<LocalDraft | null>(null)
+  const [autoSavedAt, setAutoSavedAt] = useState(0)
+  const [autoSaveFailed, setAutoSaveFailed] = useState(false)
+  const [imageBusy, setImageBusy] = useState(false)
+  const [notice, setNotice] = useState('')
+
+  const contentRef = useRef<HTMLTextAreaElement>(null)
+  const dirtyRef = useRef(false)
+  const latestRef = useRef({ title, summary, tags, content, status })
+  latestRef.current = { title, summary, tags, content, status }
 
   usePageMeta({
     title: isEditing ? `编辑：${title || '文章'}` : '写一篇新文章',
@@ -60,6 +79,81 @@ export function EditorPage() {
   }, [editingSlug])
 
   useEffect(() => { void loadArticle() }, [loadArticle])
+
+  // 进入编辑器时读取本机草稿；不自动覆盖，交给用户决定是否恢复
+  useEffect(() => {
+    setRestoreCandidate(readLocalDraft(editorDraftKey(editingSlug)))
+    setAutoSavedAt(0)
+    setAutoSaveFailed(false)
+    dirtyRef.current = false
+  }, [editingSlug])
+
+  // 输入停顿 500ms 后把当前内容写到本机，刷新或崩溃后可恢复
+  useEffect(() => {
+    if (!dirtyRef.current) return
+    const key = editorDraftKey(editingSlug)
+    const timer = window.setTimeout(() => {
+      const saved = writeLocalDraft(key, { title, summary, tags, content, status })
+      setAutoSaveFailed(!saved)
+      if (saved) setAutoSavedAt(Date.now())
+    }, 500)
+    return () => window.clearTimeout(timer)
+  }, [editingSlug, title, summary, tags, content, status])
+
+  // 关闭页面前把最后不到 500ms 的输入也落盘
+  useEffect(() => {
+    const flush = () => {
+      if (dirtyRef.current) writeLocalDraft(editorDraftKey(editingSlug), latestRef.current)
+    }
+    window.addEventListener('beforeunload', flush)
+    return () => window.removeEventListener('beforeunload', flush)
+  }, [editingSlug])
+
+  const applyRestore = () => {
+    if (!restoreCandidate) return
+    setTitle(restoreCandidate.title)
+    setSummary(restoreCandidate.summary)
+    setTags(restoreCandidate.tags)
+    setContent(restoreCandidate.content)
+    setStatus(restoreCandidate.status)
+    setRestoreCandidate(null)
+    setNotice('已恢复本机草稿，记得保存到云端。')
+    dirtyRef.current = true
+  }
+
+  const discardRestore = () => {
+    clearLocalDraft(editorDraftKey(editingSlug))
+    setRestoreCandidate(null)
+    setNotice('')
+  }
+
+  const insertAtCursor = (snippet: string) => {
+    const element = contentRef.current
+    const start = element?.selectionStart ?? content.length
+    const end = element?.selectionEnd ?? content.length
+    setContent(content.slice(0, start) + snippet + content.slice(end))
+    dirtyRef.current = true
+    window.requestAnimationFrame(() => {
+      element?.focus()
+      const position = start + snippet.length
+      element?.setSelectionRange(position, position)
+    })
+  }
+
+  const handleInlineImage = async (file: File) => {
+    setImageBusy(true)
+    setNotice('')
+    setMessage('')
+    try {
+      const { dataUrl, bytes } = await imageToMarkdownDataUrl(file)
+      insertAtCursor(markdownImageSnippet(imageAltFromName(file.name), dataUrl))
+      setNotice(`已插入图片（约 ${Math.round(bytes / 1024)} KB），随正文一起保存。`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '图片处理失败。')
+    } finally {
+      setImageBusy(false)
+    }
+  }
 
   const tagList = useMemo(() => tags.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean).slice(0, 8), [tags])
 
@@ -123,6 +217,8 @@ export function EditorPage() {
       const article = current
         ? await updateArticle(current.slug, draft, current.published_at)
         : await createArticle(draft)
+      clearLocalDraft(editorDraftKey(editingSlug))
+      dirtyRef.current = false
       navigate(`/article/${article.slug}`)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '文章保存失败。')
@@ -143,19 +239,39 @@ export function EditorPage() {
           : '正文支持 GitHub Flavored Markdown。发布后的文章会立即出现在首页和标签分类中。'}</p>
       </div>
 
+      {restoreCandidate && !loadingArticle && (
+        <div className="draft-recovery" role="status">
+          <div>
+            <strong>发现未保存的本地草稿</strong>
+            <span>保存于 {formatSavedAt(restoreCandidate.savedAt)}，可能是上次意外中断的内容。</span>
+          </div>
+          <div className="draft-recovery-actions">
+            <button className="primary-button small-button" type="button" onClick={applyRestore}>恢复草稿</button>
+            <button className="text-button-plain" type="button" onClick={discardRestore}>丢弃</button>
+          </div>
+        </div>
+      )}
+
       <form className="editor-form" onSubmit={submit}>
         <div className="editor-fields">
-          <label className="field"><span>文章标题</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="一个清楚、具体的标题" maxLength={120} /></label>
-          <label className="field"><span>文章摘要</span><textarea value={summary} onChange={(event) => setSummary(event.target.value)} placeholder="用两三句话概括文章" rows={3} maxLength={300} /></label>
-          <label className="field"><span>标签</span><input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="技术, 产品, 随笔" /></label>
-          <label className="field"><span>Markdown 正文</span><textarea className="markdown-editor" value={content} onChange={(event) => setContent(event.target.value)} spellCheck={false} /></label>
+          <label className="field"><span>文章标题</span><input value={title} onChange={(event) => { dirtyRef.current = true; setTitle(event.target.value) }} placeholder="一个清楚、具体的标题" maxLength={120} /></label>
+          <label className="field"><span>文章摘要</span><textarea value={summary} onChange={(event) => { dirtyRef.current = true; setSummary(event.target.value) }} placeholder="用两三句话概括文章" rows={3} maxLength={300} /></label>
+          <label className="field"><span>标签</span><input value={tags} onChange={(event) => { dirtyRef.current = true; setTags(event.target.value) }} placeholder="技术, 产品, 随笔" /></label>
+          <label className="field"><span>Markdown 正文</span><textarea ref={contentRef} className="markdown-editor" value={content} onChange={(event) => { dirtyRef.current = true; setContent(event.target.value) }} spellCheck={false} /></label>
         </div>
 
         <aside className="editor-sidebar">
           <div className="editor-panel">
             <span className="panel-title">发布设置</span>
-            <label className="field"><span>文章状态</span><select value={status} onChange={(event) => setStatus(event.target.value as 'draft' | 'published')}><option value="published">公开发布</option><option value="draft">保存草稿</option></select></label>
+            <label className="field"><span>文章状态</span><select value={status} onChange={(event) => { dirtyRef.current = true; setStatus(event.target.value as 'draft' | 'published') }}><option value="published">公开发布</option><option value="draft">保存草稿</option></select></label>
             <span className="read-estimate">预计 {estimateReadTime(content)} 分钟阅读 · {content.length} 字符</span>
+            <p className="status-note">
+              {autoSaveFailed
+                ? '本机自动保存失败（存储空间可能已满），请尽快保存到云端。'
+                : autoSavedAt
+                  ? `已自动保存到本机 · ${formatSavedAt(autoSavedAt)}`
+                  : '编辑内容会自动保存到本机，刷新后可恢复。'}
+            </p>
           </div>
 
           <div className="editor-panel">
@@ -172,11 +288,26 @@ export function EditorPage() {
             {attachments.map((item) => (
               <div className="uploaded-file" key={item.path}><span>{item.name}<small>{formatFileSize(item.size)}</small></span><button type="button" onClick={() => setAttachments((items) => items.filter((file) => file.path !== item.path))} aria-label={`移除${item.name}`}><X size={15} /></button></div>
             ))}
+            <label className="upload-button muted-upload">
+              <ImagePlus size={18} /> {imageBusy ? '正在处理图片…' : '插入正文图片'}
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                disabled={imageBusy || uploading}
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  event.target.value = ''
+                  if (file) void handleInlineImage(file)
+                }}
+              />
+            </label>
+            <p className="status-note">图片会压缩后直接写进正文，访客无需登录也能看到。</p>
             {uploading && <p className="status-note">正在上传到云端…</p>}
+            {notice && <p className="status-note">{notice}</p>}
           </div>
 
           {message && <p className="field-error" role="alert">{message}</p>}
-          <button className="primary-button full-button" type="submit" disabled={busy || uploading}>
+          <button className="primary-button full-button" type="submit" disabled={busy || uploading || imageBusy}>
             {isEditing ? <PencilLine size={17} /> : status === 'published' ? <Send size={17} /> : <Save size={17} />}
             {busy ? '正在保存…' : isEditing ? '保存修改' : status === 'published' ? '发布文章' : '保存草稿'}
           </button>

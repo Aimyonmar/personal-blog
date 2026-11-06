@@ -798,6 +798,45 @@ img { display: block; max-width: 100%; }
 .author-actions .action-warning, .author-actions .field-error { flex-basis: 100%; margin: 0; }
 .action-warning { color: var(--accent-dark); font-size: 12px; line-height: 1.5; }
 
+/* ---------- 写作工作流：本地草稿 / 草稿箱 / 正文插图 ---------- */
+
+.draft-recovery {
+  display: flex; align-items: center; justify-content: space-between; gap: 24px;
+  margin-bottom: 28px; padding: 18px 22px;
+  border: 1.5px solid var(--accent);
+  border-radius: var(--radius-lg);
+  background: var(--accent-tint);
+}
+.draft-recovery strong { display: block; font-family: var(--font-display); font-weight: 400; font-size: 17px; }
+.draft-recovery span { display: block; margin-top: 6px; color: var(--muted); font-size: 12px; }
+.draft-recovery-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
+.drafts-page .section-heading { align-items: flex-end; }
+.draft-list { display: grid; gap: 14px; margin-top: 34px; }
+.draft-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 24px;
+  padding: 22px 26px;
+  border: 1.5px solid var(--ink);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: 3px 3px 0 rgba(28, 26, 20, .06);
+}
+.draft-item-body { display: grid; gap: 8px; min-width: 0; }
+.draft-item h3 { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: 21px; line-height: 1.4; }
+.draft-item p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.7; }
+.draft-item .article-meta span { display: inline-flex; align-items: center; gap: 5px; }
+
+.locked-panel {
+  display: grid; justify-items: center; gap: 12px;
+  margin-top: 34px; padding: 64px 24px;
+  border: 1.5px dashed var(--line);
+  border-radius: var(--radius-lg);
+  text-align: center;
+  color: var(--muted);
+}
+.locked-panel h3 { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: 22px; color: var(--ink); }
+.locked-panel p { margin: 0; font-size: 13px; line-height: 1.7; }
+
 /* ---------- 响应式 ---------- */
 
 @media (max-width: 980px) {
@@ -871,6 +910,9 @@ img { display: block; max-width: 100%; }
   .adjacent-next .adjacent-label { justify-content: flex-start; }
 
   .mini-heading { grid-template-columns: 1fr; gap: 16px; }
+  .draft-recovery { flex-direction: column; align-items: flex-start; gap: 14px; }
+  .draft-item { flex-direction: column; align-items: flex-start; gap: 16px; }
+  .draft-item .secondary-button { width: 100%; justify-content: center; }
   .editor-title { margin-bottom: 36px; }
   .markdown-editor { min-height: 420px; }
   .preview-section { margin-top: 76px; }
