@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { cloud } from '../../app/cloud'
+import { getCloud } from '../../app/cloud'
 import type { AuthSession, AuthUser } from '../../app/types'
 
 type PendingOtp = {
@@ -41,9 +41,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let active = true
+    let idleId: number | undefined
+    let timeoutId: number | undefined
+    let unsubscribe: (() => void) | undefined
 
     const boot = async () => {
       try {
+        const cloud = await getCloud()
+        if (!active) return
+
+        const subscription = cloud.auth.onAuthStateChange((_event, session) => {
+          if (active) setUser(toUser(session as AuthSession | null))
+        })
+        if (typeof subscription === 'function') unsubscribe = subscription
+
         const callback = await cloud.auth.handleWechatWebCallback()
         if (!active) return
         if (callback.error) {
@@ -63,14 +74,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    void boot()
-    const subscription = cloud.auth.onAuthStateChange((_event, session) => {
-      if (active) setUser(toUser(session as AuthSession | null))
-    })
+    // 首屏渲染完成后再加载云 SDK，避免它进入首屏关键路径
+    if (typeof window.requestIdleCallback === 'function') {
+      idleId = window.requestIdleCallback(() => void boot(), { timeout: 800 })
+    } else {
+      timeoutId = window.setTimeout(() => void boot(), 200)
+    }
 
     return () => {
       active = false
-      if (typeof subscription === 'function') subscription()
+      if (idleId !== undefined) window.cancelIdleCallback(idleId)
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId)
+      unsubscribe?.()
     }
   }, [])
 
@@ -81,6 +96,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return false
     }
 
+    const cloud = await getCloud()
     const sent = await cloud.auth.sendOtp({ phone })
     if (sent.error) {
       setAuthError(friendlyAuthError(sent.error))
@@ -107,6 +123,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return false
     }
 
+    const cloud = await getCloud()
     const completed = await cloud.auth.verifyOtp({
       phone: pending.phone,
       verificationId: pending.verificationId,
@@ -125,6 +142,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signInWithWechat = useCallback(async () => {
     setAuthError('')
+    const cloud = await getCloud()
     const result = await cloud.auth.signInWithOAuth({
       provider: 'wechat',
       redirectTo: window.location.origin,
@@ -138,6 +156,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(async () => {
     setAuthError('')
+    const cloud = await getCloud()
     const result = await cloud.auth.signOut()
     if (result.error) {
       setAuthError(friendlyAuthError(result.error))

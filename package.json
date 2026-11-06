@@ -9,6 +9,7 @@
     "preview": "vite preview --host 0.0.0.0",
     "start": "node scripts/start.mjs",
     "test:server": "node scripts/test-server.mjs",
+    "test:unit": "vitest run",
     "test:layout": "node scripts/check-layout.mjs"
   },
   "dependencies": {
@@ -25,6 +26,7 @@
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
     "typescript": "^5.7.2",
-    "vite": "^6.0.7"
+    "vite": "^6.0.7",
+    "vitest": "^3.2.7"
   }
 }

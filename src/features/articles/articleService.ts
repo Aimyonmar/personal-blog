@@ -1,7 +1,8 @@
-import { cloud } from '../../app/cloud'
+import { getCloud } from '../../app/cloud'
 import type { Article, ArticleDraft, ArticleListItem } from '../../app/types'
+import { sortArticlesByPublishedAtDesc } from './articleMetrics'
 
-const postsTable = () => (cloud.database as any).from('blog_posts')
+const postsTable = async () => (await getCloud()).database as any
 
 const LIST_COLUMNS = 'id,owner_id,slug,title,summary,tags,status,cover_image_path,read_time,published_at,created_at,updated_at'
 
@@ -43,7 +44,8 @@ function fail(error: unknown, fallback: string): never {
 }
 
 export async function listPublishedArticles(tag?: string): Promise<ArticleListItem[]> {
-  let query = postsTable()
+  let query = (await postsTable())
+    .from('blog_posts')
     .select(LIST_COLUMNS)
     .eq('status', 'published')
     .order('published_at', { ascending: false })
@@ -51,13 +53,14 @@ export async function listPublishedArticles(tag?: string): Promise<ArticleListIt
   if (tag) query = query.contains('tags', [tag])
   const { data, error } = await query
   if (error) fail(error, '文章加载失败。')
-  const items = (data ?? []) as ArticleListItem[]
+  const items = sortArticlesByPublishedAtDesc((data ?? []) as ArticleListItem[])
   if (!tag) writeArticleListCache(items)
   return items
 }
 
 export async function getArticleBySlug(slug: string) {
-  const { data, error } = await postsTable()
+  const { data, error } = await (await postsTable())
+    .from('blog_posts')
     .select('*')
     .eq('slug', slug)
     .maybeSingle()
@@ -72,10 +75,12 @@ function publishedAtFor(draft: ArticleDraft, current?: string | null) {
 }
 
 export async function createArticle(draft: ArticleDraft) {
+  const cloud = await getCloud()
   const session = await cloud.auth.getSession()
   if (session.error || !session.data) throw new Error('请先登录后再发布文章。')
 
-  const { data, error } = await postsTable()
+  const { data, error } = await (cloud.database as any)
+    .from('blog_posts')
     .insert({
       ...draft,
       attachments: draft.attachments ?? [],
@@ -92,10 +97,12 @@ export async function createArticle(draft: ArticleDraft) {
 }
 
 export async function updateArticle(slug: string, draft: ArticleDraft, currentPublishedAt: string | null) {
+  const cloud = await getCloud()
   const session = await cloud.auth.getSession()
   if (session.error || !session.data) throw new Error('请先登录后再修改文章。')
 
-  const { data, error } = await postsTable()
+  const { data, error } = await (cloud.database as any)
+    .from('blog_posts')
     .update({
       ...draft,
       attachments: draft.attachments ?? [],
@@ -114,29 +121,13 @@ export async function updateArticle(slug: string, draft: ArticleDraft, currentPu
 }
 
 export async function deleteArticle(slug: string) {
+  const cloud = await getCloud()
   const session = await cloud.auth.getSession()
   if (session.error || !session.data) throw new Error('请先登录后再删除文章。')
 
-  const { data, error } = await postsTable().delete().eq('slug', slug).select('id')
+  const { data, error } = await (cloud.database as any).from('blog_posts').delete().eq('slug', slug).select('id')
   if (error) fail(error, '文章删除失败。')
   const rows = (data ?? []) as Array<{ id: number }>
   if (rows.length === 0) throw new Error('文章未删除，可能不是你的文章或链接已失效。')
   clearArticleListCache()
-}
-
-export function buildSlug(title: string) {
-  const normalized = title
-    .trim()
-    .toLowerCase()
-    .replace(/[\s_]+/g, '-')
-    .replace(/[^\p{L}\p{N}-]/gu, '')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-  return `${normalized || 'article'}-${Date.now().toString(36)}`
-}
-
-export function estimateReadTime(markdown: string) {
-  const chineseChars = (markdown.match(/[\u3400-\u9fff]/g) ?? []).length
-  const latinWords = (markdown.replace(/[\u3400-\u9fff]/g, ' ').match(/[A-Za-z0-9]+/g) ?? []).length
-  return Math.max(1, Math.ceil(chineseChars / 350 + latinWords / 220))
 }

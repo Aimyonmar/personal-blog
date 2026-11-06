@@ -1,4 +1,4 @@
-import { cloud } from '../../app/cloud'
+import { getCloud } from '../../app/cloud'
 import type { Attachment } from '../../app/types'
 
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
@@ -16,6 +16,7 @@ function safeName(name: string) {
 }
 
 async function requireSession() {
+  const cloud = await getCloud()
   const session = await cloud.auth.getSession()
   if (session.error || !session.data) throw new Error('请先登录后再上传文件。')
   return session.data
@@ -23,6 +24,7 @@ async function requireSession() {
 
 export async function uploadBlogFile(file: File, kind: 'covers' | 'attachments'): Promise<Attachment> {
   const session = await requireSession()
+  const cloud = await getCloud()
   const allowedTypes = kind === 'covers' ? IMAGE_TYPES : ATTACHMENT_TYPES
   const maxSize = kind === 'covers' ? 8 * 1024 * 1024 : 20 * 1024 * 1024
 
@@ -46,6 +48,7 @@ export async function uploadBlogFile(file: File, kind: 'covers' | 'attachments')
 }
 
 export async function createDownloadUrl(path: string) {
+  const cloud = await getCloud()
   const session = await cloud.auth.getSession()
   if (session.error || !session.data) throw new Error('请登录后查看云端图片或附件。')
 

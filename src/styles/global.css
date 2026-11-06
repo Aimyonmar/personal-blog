@@ -809,3 +809,64 @@ img { display: block; max-width: 100%; }
 .side-tool:hover::after, .side-tool:focus-visible::after { opacity: 1; transform: translateY(-50%) translateX(0); }
 
 .side-tool-sep { height: 1.5px; margin: 2px 5px; background: var(--line); }
+
+/* ---------- 全局错误兜底 ---------- */
+
+.error-boundary {
+  width: min(100% - 48px, 720px);
+  margin: 0 auto;
+  padding: 120px 0 140px;
+}
+.error-boundary-kicker {
+  margin: 0 0 18px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.error-boundary h1 {
+  margin: 0 0 20px;
+  font-family: var(--font-display);
+  font-size: clamp(2.2rem, 6vw, 3.4rem);
+  line-height: 1.1;
+}
+.error-boundary > p {
+  margin: 0 0 32px;
+  color: var(--muted);
+  font-size: 1.05rem;
+  line-height: 1.8;
+}
+.error-boundary-actions { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+.error-boundary-actions button,
+.error-boundary-actions a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 10px 22px;
+  border: 1.5px solid var(--ink);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 650;
+  text-decoration: none;
+  cursor: pointer;
+  box-shadow: var(--shadow-press);
+}
+.error-boundary-actions button { background: var(--accent); color: #fff8f0; }
+.error-boundary-actions button:active,
+.error-boundary-actions a:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--ink); }
+.error-boundary pre {
+  margin-top: 30px;
+  padding: 16px;
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
