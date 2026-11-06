@@ -1,5 +1,27 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
+import { generateContent } from './scripts/build-content.mjs'
+
+/** 本地内容：构建前生成元数据；dev 下监听 content/ 变化并刷新页面。 */
+function localContent(): Plugin {
+  const isPost = (file: string) => file.replace(/\\/g, '/').includes('/content/posts/') && file.endsWith('.md')
+  return {
+    name: 'local-content',
+    async buildStart() {
+      await generateContent()
+    },
+    configureServer(server) {
+      server.watcher.add('content/posts')
+      const refresh = (file: string) => {
+        if (!isPost(file)) return
+        void generateContent().then(() => server.ws.send({ type: 'full-reload' }))
+      }
+      server.watcher.on('add', refresh)
+      server.watcher.on('change', refresh)
+      server.watcher.on('unlink', refresh)
+    },
+  }
+}
 
 const MARKDOWN_PACKAGES = new Set([
   'react-markdown',
@@ -19,7 +41,7 @@ function packageName(id: string) {
 }
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), localContent()],
   server: {
     host: '0.0.0.0',
     allowedHosts: true,

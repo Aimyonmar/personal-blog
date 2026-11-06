@@ -12,7 +12,8 @@ function upsertMeta(selector: string, attribute: 'name' | 'property', key: strin
 }
 
 export const SITE_NAME = '微光手记'
-const SITE_URL = 'https://personal-blog.app.workbuddy.host'
+/** 当前站点 origin：本地预览与任意静态托管上都以实际访问地址为准。 */
+const SITE_URL = typeof window === 'undefined' ? '' : window.location.origin
 
 export function usePageMeta(options: { title: string; description?: string; path?: string }) {
   const { title, description, path } = options

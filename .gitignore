@@ -6,6 +6,9 @@ dist/
 dist-ssr/
 *.tsbuildinfo
 
+# 由 content/posts 生成的元数据（每次 dev/build 重新生成）
+src/generated/
+
 # 本地环境与密钥
 .env
 .env.*

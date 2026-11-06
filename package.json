@@ -4,8 +4,9 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
-    "build": "tsc -b && vite build",
+    "content": "node scripts/build-content.mjs",
+    "dev": "npm run content && vite --host 0.0.0.0",
+    "build": "npm run content && tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "start": "node scripts/start.mjs",
     "test:server": "node scripts/test-server.mjs",

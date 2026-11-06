@@ -4,18 +4,16 @@ import { byPublishedAtAsc, selectAdjacent, selectRelated } from './articleRelati
 
 function post(slug: string, publishedAt: string | null, tags: string[] = []): ArticleListItem {
   return {
-    id: 1,
-    owner_id: null,
     slug,
+    file: `content/posts/${slug}.md`,
     title: slug,
     summary: '',
     tags,
-    status: 'published',
-    cover_image_path: null,
-    read_time: 1,
     published_at: publishedAt,
-    created_at: publishedAt ?? '2026-01-01T00:00:00.000Z',
-    updated_at: publishedAt ?? '2026-01-01T00:00:00.000Z',
+    updated_at: publishedAt,
+    cover_image: null,
+    attachments: [],
+    read_time: 1,
   }
 }
 
@@ -46,11 +44,6 @@ describe('selectAdjacent', () => {
 
   it('不在列表中时两边都为空', () => {
     expect(selectAdjacent([postA, postB], 'missing')).toEqual({ previous: null, next: null })
-  })
-
-  it('跳过未发布的文章', () => {
-    const draft = { ...post('draft', '2026-02-15T00:00:00.000Z'), status: 'draft' as const }
-    expect(selectAdjacent([postA, draft, postB], 'b').previous?.slug).toBe('a')
   })
 })
 

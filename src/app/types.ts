@@ -5,46 +5,23 @@ export interface Attachment {
   type: string
 }
 
-export interface Article {
-  id: number
-  owner_id: string | null
+/** 来自 content/posts/*.md frontmatter 的文章元数据。 */
+export interface PostMeta {
   slug: string
+  /** 相对仓库根目录的源文件路径，如 content/posts/hello.md */
+  file: string
   title: string
   summary: string
-  content: string
   tags: string[]
-  status: 'draft' | 'published'
-  cover_image_path: string | null
+  published_at: string | null
+  updated_at: string | null
+  cover_image: string | null
   attachments: Attachment[]
   read_time: number
-  published_at: string | null
-  created_at: string
-  updated_at: string
 }
 
-export type ArticleListItem = Omit<Article, 'content' | 'attachments'>
+export type ArticleListItem = PostMeta
 
-export interface ArticleDraft {
-  slug: string
-  title: string
-  summary: string
+export interface Article extends PostMeta {
   content: string
-  tags: string[]
-  status: 'draft' | 'published'
-  cover_image_path?: string | null
-  attachments?: Attachment[]
-  read_time: number
-  published_at?: string | null
-}
-
-export interface AuthUser {
-  id: string
-  email?: string
-  phone?: string
-  phoneNumber?: string
-  name?: string
-}
-
-export interface AuthSession {
-  user: AuthUser
 }

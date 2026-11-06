@@ -1,4 +1,4 @@
-import { getCloud } from '../../app/cloud'
+import { loadAllArticleBodies } from '../articles/localContent'
 
 export interface SearchDoc {
   slug: string
@@ -15,10 +15,7 @@ export interface SearchResult extends SearchDoc {
   snippet: string
 }
 
-const CACHE_KEY = 'personal-blog:search-index:v1'
-const CACHE_TTL = 10 * 60 * 1000
-
-let memoryCache: { at: number; docs: SearchDoc[] } | null = null
+let memoryCache: SearchDoc[] | null = null
 
 /** 把 Markdown 洗成可搜索、可截断的纯文本。 */
 export function toPlainText(markdown: string) {
@@ -36,61 +33,21 @@ export function toPlainText(markdown: string) {
     .trim()
 }
 
-function normalize(doc: Record<string, unknown>): SearchDoc {
-  return {
-    slug: typeof doc.slug === 'string' ? doc.slug : '',
-    title: typeof doc.title === 'string' ? doc.title : '',
-    summary: typeof doc.summary === 'string' ? doc.summary : '',
-    tags: Array.isArray(doc.tags) ? doc.tags.filter((tag): tag is string => typeof tag === 'string') : [],
-    content: typeof doc.content === 'string' ? toPlainText(doc.content) : '',
-    published_at: typeof doc.published_at === 'string' ? doc.published_at : null,
-    read_time: typeof doc.read_time === 'number' ? doc.read_time : 1,
-  }
-}
-
-function readCache(): { at: number; docs: SearchDoc[] } | null {
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(CACHE_KEY) ?? 'null') as { at?: unknown; docs?: unknown }
-    if (!parsed || !Array.isArray(parsed.docs) || typeof parsed.at !== 'number') return null
-    if (Date.now() - parsed.at > CACHE_TTL) return null
-    return { at: parsed.at, docs: parsed.docs as SearchDoc[] }
-  } catch {
-    return null
-  }
-}
-
-function writeCache(docs: SearchDoc[]) {
-  try {
-    window.localStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), docs }))
-  } catch {
-    /* 索引过大或存储不可用时只保留内存缓存 */
-  }
-}
-
-/** 客户端索引：直接读已发布文章，10 分钟缓存，不新增任何搜索后端。 */
+/** 客户端索引：正文与元数据都来自本地 Markdown，整个会话内只构建一次。 */
 export async function loadSearchIndex({ force = false } = {}): Promise<SearchDoc[]> {
-  if (!force && memoryCache && Date.now() - memoryCache.at < CACHE_TTL) return memoryCache.docs
-  if (!force) {
-    const cached = readCache()
-    if (cached) {
-      memoryCache = cached
-      return cached.docs
-    }
-  }
+  if (!force && memoryCache) return memoryCache
 
-  const database = (await getCloud()).database as any
-  const { data, error } = await database
-    .from('blog_posts')
-    .select('slug,title,summary,tags,content,published_at,read_time')
-    .eq('status', 'published')
-    .order('published_at', { ascending: false })
-
-  if (error) throw new Error('搜索索引加载失败，请稍后重试。')
-
-  const docs = (data ?? []).map(normalize).filter((doc: SearchDoc) => doc.slug)
-  memoryCache = { at: Date.now(), docs }
-  writeCache(docs)
-  return docs
+  const articles = await loadAllArticleBodies()
+  memoryCache = articles.map((article) => ({
+    slug: article.slug,
+    title: article.title,
+    summary: article.summary,
+    tags: article.tags,
+    content: toPlainText(article.content),
+    published_at: article.published_at,
+    read_time: article.read_time,
+  }))
+  return memoryCache
 }
 
 function buildSnippet(text: string, index: number, length: number) {

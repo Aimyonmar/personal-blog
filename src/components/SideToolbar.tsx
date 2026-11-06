@@ -1,10 +1,8 @@
-import { ArrowUp, Check, Info, Link2, PenLine, Tags } from 'lucide-react'
+import { ArrowUp, Check, Info, Link2, Tags } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { NavLink } from 'react-router-dom'
-import { useAuth } from '../features/auth/AuthProvider'
 
 export function SideToolbar() {
-  const { user } = useAuth()
   const [copied, setCopied] = useState(false)
 
   useEffect(() => {
@@ -45,11 +43,6 @@ export function SideToolbar() {
       <NavLink className="side-tool" to="/about" data-tip="关于本站" aria-label="关于本站">
         <Info size={17} />
       </NavLink>
-      {user && (
-        <NavLink className="side-tool" to="/write" data-tip="写文章" aria-label="写文章">
-          <PenLine size={17} />
-        </NavLink>
-      )}
     </aside>
   )
 }

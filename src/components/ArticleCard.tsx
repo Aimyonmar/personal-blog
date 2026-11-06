@@ -7,10 +7,10 @@ export function formatDate(value: string | null | undefined) {
   return new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(value))
 }
 
-export function ArticleCard({ article, featured = false }: { article: ArticleListItem; featured?: boolean }) {
+export function ArticleCard({ article, index = 0, featured = false }: { article: ArticleListItem; index?: number; featured?: boolean }) {
   return (
     <article className={featured ? 'article-card featured-card' : 'article-card'}>
-      <div className="article-card-index" aria-hidden="true">{String(article.id).padStart(2, '0')}</div>
+      <div className="article-card-index" aria-hidden="true">{String(index + 1).padStart(2, '0')}</div>
       <div className="article-card-body">
         <div className="article-meta">
           <span>{formatDate(article.published_at)}</span>

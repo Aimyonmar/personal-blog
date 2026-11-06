@@ -88,8 +88,9 @@ export function SearchCommand() {
   }
 
   const showLoading = open && docs === null && !error
-  const showEmpty = open && !showLoading && !error && query.trim() !== '' && results.length === 0
-  const showIdle = open && !showLoading && !error && query.trim() === ''
+  const showNoArticles = open && !showLoading && !error && docs !== null && docs.length === 0
+  const showEmpty = open && !showLoading && !error && !showNoArticles && query.trim() !== '' && results.length === 0
+  const showIdle = open && !showLoading && !error && !showNoArticles && query.trim() === ''
 
   return (
     <>
@@ -141,6 +142,13 @@ export function SearchCommand() {
                 </div>
               )}
 
+              {showNoArticles && (
+                <div className="search-state">
+                  <span>还没有文章可以搜索。</span>
+                  <span className="search-hint">在 content/posts/ 添加 Markdown 文件后，搜索索引会自动更新。</span>
+                </div>
+              )}
+
               {showIdle && (
                 <div className="search-state">
                   <span>输入关键词即可搜索全部已发布文章。</span>
@@ -185,7 +193,7 @@ export function SearchCommand() {
 
             <div className="search-footer">
               <span>{results.length > 0 ? `${results.length} 条结果` : '站内搜索'}</span>
-              <span>索引来自已发布文章，最多 10 分钟更新一次</span>
+              <span>索引来自本地 Markdown 内容</span>
             </div>
           </div>
         </div>

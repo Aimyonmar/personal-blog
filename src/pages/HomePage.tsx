@@ -1,44 +1,18 @@
 import { ArrowDown, Sparkles } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { ArticleListItem } from '../app/types'
 import { usePageMeta } from '../app/usePageMeta'
 import { ArticleCard } from '../components/ArticleCard'
-import { EmptyState, ErrorState, LoadingState } from '../components/States'
-import { listPublishedArticles, readArticleListCache } from '../features/articles/articleService'
+import { EmptyState } from '../components/States'
+import { listPublishedArticles } from '../features/articles/localContent'
 
 export function HomePage() {
-  // 首屏先用本地缓存的列表渲染（若有），随后静默刷新，避免白屏等待
-  const [cachedArticles] = useState(() => {
-    const cached = readArticleListCache()
-    return cached && cached.length > 0 ? cached : null
-  })
-  const [articles, setArticles] = useState<ArticleListItem[]>(cachedArticles ?? [])
-  const [loading, setLoading] = useState(!cachedArticles)
-  const [error, setError] = useState('')
+  const articles = listPublishedArticles()
 
   usePageMeta({
     title: '微光手记 | 技术与生活随笔',
     description: '记录技术实践、产品思考与日常灵感的个人博客。把复杂的事，写得清楚一点。',
     path: '/',
   })
-
-  const load = useCallback(async (silent = false) => {
-    if (!silent) {
-      setLoading(true)
-      setError('')
-    }
-    try {
-      setArticles(await listPublishedArticles())
-      setError('')
-    } catch (loadError) {
-      if (!silent) setError(loadError instanceof Error ? loadError.message : '未知错误')
-    } finally {
-      if (!silent) setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => { void load(Boolean(cachedArticles)) }, [load, cachedArticles])
 
   return (
     <>
@@ -78,14 +52,16 @@ export function HomePage() {
           <p>从技术实现到生活观察，每篇文章都尽量留下可复用的思考过程。</p>
         </div>
 
-        {loading && <LoadingState label="正在从云端读取文章" />}
-        {!loading && error && <ErrorState message={error} onRetry={() => void load()} />}
-        {!loading && !error && articles.length === 0 && (
-          <EmptyState title="还没有已发布的文章" description="登录后前往“写文章”，发布第一篇 Markdown 内容。" />
-        )}
-        {!loading && !error && articles.length > 0 && (
+        {articles.length === 0 ? (
+          <EmptyState
+            title="还没有文章"
+            description="在 content/posts/ 下新建一个 Markdown 文件，保存后页面会自动刷新。格式说明见 content/README.md。"
+          />
+        ) : (
           <div className="article-list">
-            {articles.map((article, index) => <ArticleCard key={article.id} article={article} featured={index === 0} />)}
+            {articles.map((article, index) => (
+              <ArticleCard key={article.slug} article={article} index={index} featured={index === 0} />
+            ))}
           </div>
         )}
       </section>
