@@ -1,6 +1,9 @@
-import { describe, expect, it, vi } from 'vitest'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { afterAll, describe, expect, it } from 'vitest'
+import { loadPosts, parseFrontmatter } from './content.mjs'
 import {
-  createPostStore,
   injectArticleMeta,
   renderRss,
   renderRobots,
@@ -17,8 +20,23 @@ const posts = [
     summary: '**摘要** 第一行\n\n第二行',
     published_at: '2026-10-01T08:00:00.000Z',
     updated_at: '2026-10-02T08:00:00.000Z',
+    cover_image: null,
   },
 ]
+
+const tempDirs = []
+async function makeContentDir(files) {
+  const dir = await mkdtemp(path.join(tmpdir(), 'glow-content-'))
+  tempDirs.push(dir)
+  for (const [name, body] of Object.entries(files)) {
+    await writeFile(path.join(dir, name), body, 'utf8')
+  }
+  return dir
+}
+
+afterAll(async () => {
+  await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })))
+})
 
 describe('stripMarkdown / summaryFor', () => {
   it('去掉常见 Markdown 标记', () => {
@@ -37,11 +55,61 @@ describe('stripMarkdown / summaryFor', () => {
   })
 })
 
+describe('parseFrontmatter / loadPosts', () => {
+  it('解析标量、行内数组与缩进列表', () => {
+    const { data, body } = parseFrontmatter([
+      '---',
+      'title: "带引号的标题"',
+      'tags: [react, css]',
+      'published_at: 2026-10-01',
+      'read_time: 5',
+      'attachments: [/files/附件.pdf]',
+      '---',
+      '',
+      '# 正文',
+    ].join('\n'))
+    expect(data.title).toBe('带引号的标题')
+    expect(data.tags).toEqual(['react', 'css'])
+    expect(data.published_at).toBe('2026-10-01')
+    expect(data.read_time).toBe(5)
+    expect(data.attachments).toEqual(['/files/附件.pdf'])
+    expect(body).toBe('# 正文')
+  })
+
+  it('按发布时间倒序，跳过下划线开头的草稿', async () => {
+    const dir = await makeContentDir({
+      'older.md': '---\ntitle: 旧文\npublished_at: 2026-01-01\n---\n旧正文',
+      'newer.md': '---\ntitle: 新文\npublished_at: 2026-03-01\n---\n新正文',
+      '_draft.md': '---\ntitle: 草稿\n---\n不应出现',
+    })
+    const loaded = await loadPosts({ contentDir: dir })
+    expect(loaded.map((post) => post.slug)).toEqual(['newer', 'older'])
+    expect(loaded[0].summary).toBe('新正文')
+    expect(loaded[0].read_time).toBeGreaterThanOrEqual(1)
+  })
+
+  it('没有文章时返回空数组', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'glow-empty-'))
+    tempDirs.push(dir)
+    expect(await loadPosts({ contentDir: dir })).toEqual([])
+  })
+
+  it('目录不存在时返回空数组', async () => {
+    expect(await loadPosts({ contentDir: path.join(tmpdir(), 'glow-not-exist-dir') })).toEqual([])
+  })
+
+  it('拒绝不合法的文件名', async () => {
+    const dir = await makeContentDir({ 'bad slug.md': '---\ntitle: x\n---\n正文' })
+    await expect(loadPosts({ contentDir: dir })).rejects.toThrow(/文件名不合法/)
+  })
+})
+
 describe('renderRobots', () => {
-  it('指向 sitemap 并屏蔽写作页', () => {
+  it('指向 sitemap，且不再屏蔽写作路径', () => {
     const body = renderRobots(origin)
     expect(body).toContain('Sitemap: https://example.com/sitemap.xml')
-    expect(body).toContain('Disallow: /write')
+    expect(body).toContain('Allow: /')
+    expect(body).not.toContain('/write')
   })
 })
 
@@ -68,6 +136,13 @@ describe('renderRss', () => {
     expect(body).toContain('<title>你好，世界 &amp; &lt;begin&gt;</title>')
     expect(body).toContain('<link>https://example.com/article/hello-world</link>')
     expect(body).toContain('<pubDate>Thu, 01 Oct 2026 08:00:00 GMT</pubDate>')
+  })
+
+  it('没有文章时仍输出合法频道', () => {
+    const body = renderRss([], origin)
+    expect(body).toContain('<channel>')
+    expect(body).not.toContain('<item>')
+    expect(body.trimEnd().endsWith('</rss>')).toBe(true)
   })
 })
 
@@ -96,36 +171,14 @@ describe('injectArticleMeta', () => {
     expect(html).not.toContain('旧标题')
   })
 
+  it('使用本地封面图作为 og:image', () => {
+    const html = injectArticleMeta(template, { ...posts[0], cover_image: '/images/cover.png' }, origin)
+    expect(html).toContain('content="https://example.com/images/cover.png"')
+  })
+
   it('注入 BlogPosting 结构化数据且不产生脚本闭合风险', () => {
     const html = injectArticleMeta(template, { ...posts[0], title: '标题 </script><script>' }, origin)
     expect(html).toContain('"@type":"BlogPosting"')
     expect(html).not.toContain('</script><script>')
-  })
-})
-
-describe('createPostStore', () => {
-  it('在 TTL 内复用缓存，只请求一次', async () => {
-    let calls = 0
-    const fetchImpl = vi.fn(async () => {
-      calls += 1
-      return { ok: true, json: async () => posts }
-    })
-    const store = createPostStore({ endpoint: 'https://example.com', publishableKey: 'k', ttlMs: 60_000, fetchImpl })
-    await store.getPosts()
-    await store.getPosts()
-    expect(calls).toBe(1)
-  })
-
-  it('拉取失败时回退到上一次成功的数据', async () => {
-    let calls = 0
-    const fetchImpl = vi.fn(async () => {
-      calls += 1
-      if (calls === 1) return { ok: true, json: async () => posts }
-      throw new Error('network down')
-    })
-    const store = createPostStore({ endpoint: 'https://example.com', publishableKey: 'k', ttlMs: 0, fetchImpl })
-    await store.getPosts()
-    const result = await store.findBySlug('hello-world')
-    expect(result?.title).toBe(posts[0].title)
   })
 })

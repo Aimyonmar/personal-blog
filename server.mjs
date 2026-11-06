@@ -4,18 +4,17 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { gzipSync } from 'node:zlib'
-import { createPostStore, injectArticleMeta, renderRobots, renderRss, renderSitemap } from './scripts/blog-data.mjs'
+import { loadPosts } from './scripts/content.mjs'
+import { injectArticleMeta, renderRobots, renderRss, renderSitemap } from './scripts/blog-data.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const distDir = path.join(here, 'dist')
 const port = Number(process.env.PORT || 3000)
 const host = '0.0.0.0'
 
-const CLOUD_ENDPOINT = process.env.WB_CLOUD_ENDPOINT || 'https://personal-blog.app.workbuddy.host'
-const PUBLISHABLE_KEY =
-  process.env.WB_PUBLISHABLE_KEY ||
-  'REDACTED'
-const postStore = createPostStore({ endpoint: CLOUD_ENDPOINT, publishableKey: PUBLISHABLE_KEY })
+// 全部内容来自仓库内 Markdown；启动时读取一次，不访问任何网络接口。
+const posts = await loadPosts()
+const postsBySlug = new Map(posts.map((post) => [post.slug, post]))
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -140,7 +139,8 @@ const server = createServer(async (req, res) => {
     }
 
     const url = new URL(req.url ?? '/', 'http://localhost')
-    let pathname = decodeURIComponent(url.pathname)
+    const requestedPath = decodeURIComponent(url.pathname)
+    let pathname = requestedPath
     if (pathname.endsWith('/')) pathname += 'index.html'
 
     const origin = originFor(req)
@@ -154,11 +154,22 @@ const server = createServer(async (req, res) => {
     }
 
     if (pathname === '/sitemap.xml' || pathname === '/rss.xml') {
-      const posts = await postStore.getPosts()
       const body = pathname === '/sitemap.xml' ? renderSitemap(posts, origin) : renderRss(posts, origin)
       sendBuffer(req, res, body, {
         contentType: 'application/xml; charset=utf-8',
         cacheControl: 'public, max-age=300',
+      })
+      return
+    }
+
+    // 文章页始终动态注入 meta（即使构建时已生成静态 HTML），保证本地预览的 canonical 使用当前 origin
+    const articleMatch = /^\/article\/([^/]+)\/?$/.exec(requestedPath)
+    const articlePost = articleMatch ? postsBySlug.get(articleMatch[1]) : null
+    if (articlePost) {
+      const html = await readIndexHtml()
+      sendBuffer(req, res, injectArticleMeta(html, articlePost, origin), {
+        contentType: HTML_MIME,
+        cacheControl: 'no-cache',
       })
       return
     }
@@ -186,9 +197,7 @@ const server = createServer(async (req, res) => {
       }
 
       const html = await readIndexHtml()
-      const match = /^\/article\/([^/]+)$/.exec(pathname)
-      const post = match ? await postStore.findBySlug(match[1]) : null
-      sendBuffer(req, res, post ? injectArticleMeta(html, post, origin) : html, {
+      sendBuffer(req, res, html, {
         contentType: HTML_MIME,
         cacheControl: 'no-cache',
       })
@@ -230,5 +239,5 @@ const server = createServer(async (req, res) => {
 })
 
 server.listen(port, host, () => {
-  console.log(`[server] 微光手记已启动：http://${host}:${port}`)
+  console.log(`[server] 微光手记已启动：http://${host}:${port}（本地文章 ${posts.length} 篇）`)
 })

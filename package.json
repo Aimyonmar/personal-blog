@@ -6,7 +6,7 @@
   "scripts": {
     "content": "node scripts/build-content.mjs",
     "dev": "npm run content && vite --host 0.0.0.0",
-    "build": "npm run content && tsc -b && vite build",
+    "build": "npm run content && tsc -b && vite build && node scripts/postbuild.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "start": "node scripts/start.mjs",
     "test:server": "node scripts/test-server.mjs",
@@ -14,7 +14,6 @@
     "test:layout": "node scripts/check-layout.mjs"
   },
   "dependencies": {
-    "@tencent-ai/workbuddy-cloud-sdk": "dev",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

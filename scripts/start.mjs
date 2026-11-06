@@ -21,6 +21,7 @@ const stampPath = path.join(distDir, '.build-stamp')
 
 const INPUTS = [
   'src',
+  'content',
   'index.html',
   'vite.config.ts',
   'package.json',
@@ -28,11 +29,16 @@ const INPUTS = [
   'tsconfig.json',
   'tsconfig.app.json',
   'tsconfig.node.json',
+  'scripts/content.mjs',
+  'scripts/build-content.mjs',
+  'scripts/blog-data.mjs',
+  'scripts/postbuild.mjs',
 ]
 
 function walkFiles(dir, out = []) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name)
+    if (full === path.join(root, 'src', 'generated')) continue
     if (entry.isDirectory()) walkFiles(full, out)
     else out.push(full)
   }
@@ -70,9 +76,14 @@ if (upToDate) {
   console.log('[start] 源码未变化，跳过构建')
 } else {
   console.log('[start] 检测到源码变化，开始构建…')
+  const runNode = (script) => spawnSync(process.execPath, [path.join(root, script)], { cwd: root, stdio: 'inherit' })
+  const contentResult = runNode('scripts/build-content.mjs')
   const viteBin = path.join(root, 'node_modules', 'vite', 'bin', 'vite.js')
-  const result = spawnSync(process.execPath, [viteBin, 'build'], { cwd: root, stdio: 'inherit' })
-  if (result.status === 0) {
+  const result = contentResult.status === 0
+    ? spawnSync(process.execPath, [viteBin, 'build'], { cwd: root, stdio: 'inherit' })
+    : contentResult
+  const seoResult = result.status === 0 ? runNode('scripts/postbuild.mjs') : result
+  if (seoResult.status === 0) {
     writeFileSync(stampPath, stamp)
     console.log('[start] 构建完成')
   } else if (existsSync(distIndex)) {

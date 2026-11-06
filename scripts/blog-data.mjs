@@ -1,17 +1,10 @@
 /**
- * 博客分发数据层：从云端只读拉取已发布文章，并生成 sitemap / RSS / 文章级 meta。
- * 零依赖，供 server.mjs 使用；纯函数部分可在单元测试中直接引用。
+ * 博客分发数据层：基于本地 content/posts 的文章数据，生成 sitemap / RSS / robots / 文章级 meta。
+ * 零依赖、不访问网络；纯函数，供 server.mjs、构建脚本与单元测试共用。
  */
+import { SITE } from './content.mjs'
 
-export const SITE = {
-  name: '微光手记',
-  title: '微光手记 | 技术与生活随笔',
-  description: '记录技术实践、产品思考与日常灵感。把复杂的事，写得清楚一点。',
-  author: '微光手记',
-  language: 'zh-CN',
-}
-
-const POST_COLUMNS = 'slug,title,summary,tags,published_at,updated_at'
+export { SITE }
 
 export function escapeXml(value) {
   return String(value ?? '')
@@ -52,55 +45,16 @@ function isoDate(value) {
   return Number.isNaN(date.getTime()) ? null : date
 }
 
-/** 已发布文章的内存缓存：默认 5 分钟，拉取失败时返回上一次成功结果。 */
-export function createPostStore({ endpoint, publishableKey, ttlMs = 5 * 60 * 1000, fetchImpl = fetch }) {
-  const base = endpoint.replace(/\/$/, '')
-  const url = new URL(`${base}/.cloud/database/rest/blog_posts`)
-  url.searchParams.set('select', POST_COLUMNS)
-  url.searchParams.set('status', 'eq.published')
-  url.searchParams.set('order', 'published_at.desc')
-
-  let cache = { at: 0, posts: [] }
-  let inflight = null
-
-  async function load() {
-    try {
-      const response = await fetchImpl(url, {
-        headers: { 'x-wb-webapp-access-key': publishableKey },
-        signal: AbortSignal.timeout(5000),
-      })
-      if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      const rows = await response.json()
-      if (!Array.isArray(rows)) throw new Error('返回格式不是数组')
-      cache = { at: Date.now(), posts: rows }
-      return cache.posts
-    } catch (error) {
-      console.warn('[blog-data] 文章数据拉取失败，使用缓存或静态兜底：', error.message)
-      return cache.posts
-    } finally {
-      inflight = null
-    }
-  }
-
-  return {
-    async getPosts() {
-      if (Date.now() - cache.at < ttlMs && cache.posts.length > 0) return cache.posts
-      if (!inflight) inflight = load()
-      return inflight
-    },
-    async findBySlug(slug) {
-      const posts = await this.getPosts()
-      return posts.find((post) => post.slug === slug) ?? null
-    },
-  }
+function absoluteUrl(origin, value) {
+  if (!value) return null
+  if (/^https?:\/\//i.test(value)) return value
+  return `${origin}${value.startsWith('/') ? '' : '/'}${value}`
 }
 
 export function renderRobots(origin) {
   return [
     'User-agent: *',
     'Allow: /',
-    'Disallow: /write',
-    'Disallow: /drafts',
     '',
     `Sitemap: ${origin}/sitemap.xml`,
     '',
@@ -181,7 +135,7 @@ export function injectArticleMeta(template, post, origin) {
   const title = `${post.title} | ${SITE.name}`
   const description = summaryFor(post)
   const canonical = `${origin}/article/${encodeURIComponent(post.slug)}`
-  const image = `${origin}/og-default.png`
+  const image = absoluteUrl(origin, post.cover_image) ?? `${origin}/og-default.png`
   const published = isoDate(post.published_at)
   const modified = isoDate(post.updated_at ?? post.published_at)
 

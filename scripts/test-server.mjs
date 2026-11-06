@@ -100,7 +100,7 @@ async function main() {
   const identity = { 'Accept-Encoding': 'identity' }
 
   console.log('\n[1] 正常路由应全部 200')
-  for (const route of ['/', '/tags', '/about', '/article/any-slug', '/editor', '/unknow-nested/route']) {
+  for (const route of ['/', '/tags', '/about', '/article/any-slug', '/unknown-nested/route']) {
     const res = await raw(route, { headers: gz })
     check(`${route} -> 200`, res.status === 200, `实际 ${res.status}`)
   }
@@ -211,13 +211,14 @@ async function main() {
   check('/robots.txt -> 200', robots.status === 200, `实际 ${robots.status}`)
   check('robots Content-Type 为 text/plain', /text\/plain/.test(robots.headers['content-type'] ?? ''), robots.headers['content-type'])
   check('robots 指向 sitemap', robotsBody.includes(`Sitemap: ${origin}/sitemap.xml`))
-  check('robots 屏蔽 /write', robotsBody.includes('Disallow: /write'))
+  check('robots 不再屏蔽写作路径', !robotsBody.includes('/write') && !robotsBody.includes('/drafts'))
 
   const sitemap = await raw('/sitemap.xml', { headers: gz })
   const sitemapBody = text(sitemap)
   check('/sitemap.xml -> 200', sitemap.status === 200, `实际 ${sitemap.status}`)
   check('sitemap 为 application/xml', /application\/xml/.test(sitemap.headers['content-type'] ?? ''), sitemap.headers['content-type'])
   check('sitemap 含静态首页与标签页', sitemapBody.includes(`<loc>${origin}/</loc>`) && sitemapBody.includes(`${origin}/tags`))
+  check('零文章时 sitemap 仍是合法 XML', sitemapBody.startsWith('<?xml') && sitemapBody.trimEnd().endsWith('</urlset>'))
   check('sitemap 可走 ETag 协商', /W\/"/.test(sitemap.headers.etag ?? ''), sitemap.headers.etag)
   const sitemapCached = await raw('/sitemap.xml', { headers: { ...gz, 'If-None-Match': sitemap.headers.etag } })
   check('sitemap 复验返回 304', sitemapCached.status === 304, `实际 ${sitemapCached.status}`)
@@ -226,15 +227,21 @@ async function main() {
   const rssBody = text(rss)
   check('/rss.xml -> 200', rss.status === 200, `实际 ${rss.status}`)
   check('rss 含 channel 与 self 链接', rssBody.includes('<channel>') && rssBody.includes(`${origin}/rss.xml`))
-  check('rss 被 gzip', rss.headers['content-encoding'] === 'gzip', rss.headers['content-encoding'])
+  check('零文章时 rss 仍是合法 XML', rssBody.startsWith('<?xml') && rssBody.trimEnd().endsWith('</rss>'))
+  const rssRaw = rss.headers['content-encoding'] === 'gzip' ? gunzipSync(rss.body) : rss.body
+  check(
+    'rss 达到阈值时被 gzip（小内容可保持原文）',
+    rss.headers['content-encoding'] === 'gzip' || rssRaw.length < 1024,
+    `${rss.headers['content-encoding'] ?? 'identity'} / ${rssRaw.length}B`,
+  )
 
   const ogImage = await raw('/og-default.png')
   check('/og-default.png -> 200', ogImage.status === 200, `实际 ${ogImage.status}`)
   check('og 图为 image/png', /image\/png/.test(ogImage.headers['content-type'] ?? ''), ogImage.headers['content-type'])
 
-  const articleSlug = /<loc>[^<]*\/article\/([^<]+)<\/loc>/.exec(sitemapBody)?.[1]
-  if (articleSlug) {
-    const article = await raw(`/article/${articleSlug}`, { headers: gz })
+  const articleSlugs = [...sitemapBody.matchAll(/<loc>[^<]*\/article\/([^<]+)<\/loc>/g)].map((match) => match[1])
+  if (articleSlugs.length > 0) {
+    const article = await raw(`/article/${articleSlugs[0]}`, { headers: gz })
     const html = text(article)
     check('文章页 -> 200', article.status === 200, `实际 ${article.status}`)
     check('文章页 title 为文章级', /<title>(?!微光手记 \| 技术与生活随笔)[^<]+<\/title>/.test(html))
@@ -243,7 +250,8 @@ async function main() {
     check('文章页含 canonical', /rel="canonical"/.test(html))
     check('文章页含 BlogPosting 结构化数据', /"@type":"BlogPosting"/.test(html))
   } else {
-    check('sitemap 含已发布文章', false, '云端数据不可用，未能验证文章级 meta')
+    check('零文章时 sitemap 不含文章地址', articleSlugs.length === 0)
+    check('/', true, '当前没有文章，文章级 meta 的注入逻辑由 scripts/blog-data.test.mjs 覆盖')
   }
 
   const unknownArticle = await raw('/article/__not_exists__', { headers: gz })
