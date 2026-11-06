@@ -4,11 +4,18 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { gzipSync } from 'node:zlib'
+import { createPostStore, injectArticleMeta, renderRobots, renderRss, renderSitemap } from './scripts/blog-data.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const distDir = path.join(here, 'dist')
 const port = Number(process.env.PORT || 3000)
 const host = '0.0.0.0'
+
+const CLOUD_ENDPOINT = process.env.WB_CLOUD_ENDPOINT || 'https://personal-blog.app.workbuddy.host'
+const PUBLISHABLE_KEY =
+  process.env.WB_PUBLISHABLE_KEY ||
+  'REDACTED'
+const postStore = createPostStore({ endpoint: CLOUD_ENDPOINT, publishableKey: PUBLISHABLE_KEY })
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -73,6 +80,57 @@ async function statFile(filePath) {
   }
 }
 
+function originFor(req) {
+  if (process.env.PUBLIC_ORIGIN) return process.env.PUBLIC_ORIGIN.replace(/\/$/, '')
+  const forwardedProto = String(req.headers['x-forwarded-proto'] ?? '').split(',')[0].trim()
+  const forwardedHost = String(req.headers['x-forwarded-host'] ?? '').split(',')[0].trim()
+  const hostHeader = forwardedHost || String(req.headers.host || `localhost:${port}`)
+  const isLocal = /^(localhost|127\.|0\.0\.0\.0|\[::1\])/i.test(hostHeader)
+  const proto = forwardedProto || (isLocal ? 'http' : 'https')
+  return `${proto}://${hostHeader}`
+}
+
+const HTML_MIME = 'text/html; charset=utf-8'
+
+/** 动态内容响应：按需 gzip + ETag/304 + 不做长缓存。 */
+function sendBuffer(req, res, body, { contentType, cacheControl = 'no-cache' }) {
+  const raw = Buffer.isBuffer(body) ? body : Buffer.from(body)
+  const acceptsGzip = /\bgzip\b/.test(req.headers['accept-encoding'] ?? '')
+  const payload = acceptsGzip && raw.length >= MIN_GZIP_BYTES ? gzipSync(raw, { level: 6 }) : raw
+  const etag = `W/"${createHash('sha1').update(raw).digest('hex').slice(0, 20)}"`
+
+  const headers = {
+    'Content-Type': contentType,
+    'Cache-Control': cacheControl,
+    ETag: etag,
+    Vary: 'Accept-Encoding',
+    'X-Content-Type-Options': 'nosniff',
+  }
+
+  if (req.headers['if-none-match'] === etag) {
+    res.writeHead(304, headers)
+    res.end()
+    return
+  }
+
+  if (payload !== raw) headers['Content-Encoding'] = 'gzip'
+  headers['Content-Length'] = String(payload.length)
+  res.writeHead(200, headers)
+  if (req.method === 'HEAD') res.end()
+  else res.end(payload)
+}
+
+let indexCache = { mtimeMs: 0, html: '' }
+
+async function readIndexHtml() {
+  const filePath = path.join(distDir, 'index.html')
+  const stat = await fs.stat(filePath)
+  if (!indexCache.html || stat.mtimeMs !== indexCache.mtimeMs) {
+    indexCache = { mtimeMs: stat.mtimeMs, html: await fs.readFile(filePath, 'utf8') }
+  }
+  return indexCache.html
+}
+
 const server = createServer(async (req, res) => {
   try {
     if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -84,6 +142,26 @@ const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost')
     let pathname = decodeURIComponent(url.pathname)
     if (pathname.endsWith('/')) pathname += 'index.html'
+
+    const origin = originFor(req)
+
+    if (pathname === '/robots.txt') {
+      sendBuffer(req, res, renderRobots(origin), {
+        contentType: 'text/plain; charset=utf-8',
+        cacheControl: 'public, max-age=3600',
+      })
+      return
+    }
+
+    if (pathname === '/sitemap.xml' || pathname === '/rss.xml') {
+      const posts = await postStore.getPosts()
+      const body = pathname === '/sitemap.xml' ? renderSitemap(posts, origin) : renderRss(posts, origin)
+      sendBuffer(req, res, body, {
+        contentType: 'application/xml; charset=utf-8',
+        cacheControl: 'public, max-age=300',
+      })
+      return
+    }
 
     let filePath = path.resolve(distDir, `.${pathname}`)
     const relPath = path.relative(distDir, filePath)
@@ -106,13 +184,15 @@ const server = createServer(async (req, res) => {
         res.end('Not Found')
         return
       }
-      filePath = path.join(distDir, 'index.html')
-      stat = await statFile(filePath)
-      if (!stat) {
-        res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' })
-        res.end('Build output is missing')
-        return
-      }
+
+      const html = await readIndexHtml()
+      const match = /^\/article\/([^/]+)$/.exec(pathname)
+      const post = match ? await postStore.findBySlug(match[1]) : null
+      sendBuffer(req, res, post ? injectArticleMeta(html, post, origin) : html, {
+        contentType: HTML_MIME,
+        cacheControl: 'no-cache',
+      })
+      return
     }
 
     const ext = path.extname(filePath).toLowerCase()

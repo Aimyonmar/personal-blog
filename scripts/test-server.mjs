@@ -10,6 +10,7 @@ import http from 'node:http'
 import { spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
+import { gunzipSync } from 'node:zlib'
 import { fileURLToPath } from 'node:url'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -43,6 +44,12 @@ function raw(pathname, { headers = {}, method = 'GET' } = {}) {
     req.on('error', reject)
     req.end()
   })
+}
+
+/** 响应正文按 Content-Encoding 解压后转成字符串 */
+function text(res) {
+  const body = res.headers['content-encoding'] === 'gzip' ? gunzipSync(res.body) : res.body
+  return body.toString('utf8')
 }
 
 async function waitForReady(timeoutMs = 15000) {
@@ -195,6 +202,59 @@ async function main() {
   const postRes = await raw('/', { method: 'POST' })
   check('POST / -> 405', postRes.status === 405, `实际 ${postRes.status}`)
   check('405 带 Allow 头', /GET/.test(postRes.headers.allow ?? ''), postRes.headers.allow)
+
+  console.log('\n[9] SEO 与分发（sitemap / RSS / robots / 文章级 meta）')
+  const origin = `http://127.0.0.1:${PORT}`
+
+  const robots = await raw('/robots.txt', { headers: gz })
+  const robotsBody = text(robots)
+  check('/robots.txt -> 200', robots.status === 200, `实际 ${robots.status}`)
+  check('robots Content-Type 为 text/plain', /text\/plain/.test(robots.headers['content-type'] ?? ''), robots.headers['content-type'])
+  check('robots 指向 sitemap', robotsBody.includes(`Sitemap: ${origin}/sitemap.xml`))
+  check('robots 屏蔽 /write', robotsBody.includes('Disallow: /write'))
+
+  const sitemap = await raw('/sitemap.xml', { headers: gz })
+  const sitemapBody = text(sitemap)
+  check('/sitemap.xml -> 200', sitemap.status === 200, `实际 ${sitemap.status}`)
+  check('sitemap 为 application/xml', /application\/xml/.test(sitemap.headers['content-type'] ?? ''), sitemap.headers['content-type'])
+  check('sitemap 含静态首页与标签页', sitemapBody.includes(`<loc>${origin}/</loc>`) && sitemapBody.includes(`${origin}/tags`))
+  check('sitemap 可走 ETag 协商', /W\/"/.test(sitemap.headers.etag ?? ''), sitemap.headers.etag)
+  const sitemapCached = await raw('/sitemap.xml', { headers: { ...gz, 'If-None-Match': sitemap.headers.etag } })
+  check('sitemap 复验返回 304', sitemapCached.status === 304, `实际 ${sitemapCached.status}`)
+
+  const rss = await raw('/rss.xml', { headers: gz })
+  const rssBody = text(rss)
+  check('/rss.xml -> 200', rss.status === 200, `实际 ${rss.status}`)
+  check('rss 含 channel 与 self 链接', rssBody.includes('<channel>') && rssBody.includes(`${origin}/rss.xml`))
+  check('rss 被 gzip', rss.headers['content-encoding'] === 'gzip', rss.headers['content-encoding'])
+
+  const ogImage = await raw('/og-default.png')
+  check('/og-default.png -> 200', ogImage.status === 200, `实际 ${ogImage.status}`)
+  check('og 图为 image/png', /image\/png/.test(ogImage.headers['content-type'] ?? ''), ogImage.headers['content-type'])
+
+  const articleSlug = /<loc>[^<]*\/article\/([^<]+)<\/loc>/.exec(sitemapBody)?.[1]
+  if (articleSlug) {
+    const article = await raw(`/article/${articleSlug}`, { headers: gz })
+    const html = text(article)
+    check('文章页 -> 200', article.status === 200, `实际 ${article.status}`)
+    check('文章页 title 为文章级', /<title>(?!微光手记 \| 技术与生活随笔)[^<]+<\/title>/.test(html))
+    check('文章页含文章级 og:title', /property="og:title" content="[^"]+"/.test(html))
+    check('文章页含 og:image', /property="og:image" content="[^"]*og-default\.png"/.test(html))
+    check('文章页含 canonical', /rel="canonical"/.test(html))
+    check('文章页含 BlogPosting 结构化数据', /"@type":"BlogPosting"/.test(html))
+  } else {
+    check('sitemap 含已发布文章', false, '云端数据不可用，未能验证文章级 meta')
+  }
+
+  const unknownArticle = await raw('/article/__not_exists__', { headers: gz })
+  check(
+    '未知文章回退到站点级标题',
+    text(unknownArticle).includes('<title>微光手记 | 技术与生活随笔</title>'),
+  )
+
+  const headSitemap = await raw('/sitemap.xml', { method: 'HEAD', headers: gz })
+  check('HEAD /sitemap.xml -> 200', headSitemap.status === 200, `实际 ${headSitemap.status}`)
+
 
   stop()
 
