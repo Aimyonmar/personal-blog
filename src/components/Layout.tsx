@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../features/auth/AuthProvider'
 import { AuthDialog } from './AuthDialog'
+import { ReadingPreferencesPanel } from './ReadingPreferencesPanel'
 import { SearchCommand } from './SearchCommand'
 import { SideToolbar } from './SideToolbar'
 
@@ -54,6 +55,7 @@ export function Layout() {
 
         <div className="header-actions">
           <SearchCommand />
+          <ReadingPreferencesPanel />
           {loading ? (
             <span className="auth-loading">账号加载中</span>
           ) : user ? (

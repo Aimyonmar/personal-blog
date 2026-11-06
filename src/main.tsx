@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { AuthProvider } from './features/auth/AuthProvider'
+import { ReadingPreferencesProvider } from './features/preferences/ReadingPreferencesProvider'
 import './styles/global.css'
 
 const legacyHash = window.location.hash
@@ -15,9 +16,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <BrowserRouter>
       <ErrorBoundary>
-        <AuthProvider>
-          <App />
-        </AuthProvider>
+        <ReadingPreferencesProvider>
+          <AuthProvider>
+            <App />
+          </AuthProvider>
+        </ReadingPreferencesProvider>
       </ErrorBoundary>
     </BrowserRouter>
   </React.StrictMode>,
