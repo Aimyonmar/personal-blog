@@ -1,0 +1,34 @@
+# 依赖
+node_modules/
+
+# 构建产物
+dist/
+dist-ssr/
+*.tsbuildinfo
+
+# 本地环境与密钥
+.env
+.env.*
+!.env.example
+*.local
+*.pem
+*.key
+.wbapp_*.genie.local
+
+# 工具与临时目录
+.config-emit-backup/
+.screenshots/
+.vite/
+.cache/
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# 本地数据备份（含文章正文，不入库）
+备份/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
