@@ -81,11 +81,17 @@ PUBLIC_ORIGIN=https://your-domain.com npm run build
 
 仓库已包含 [.github/workflows/pages.yml](.github/workflows/pages.yml)：推送到 `main` 后自动构建并发布。
 
-首次使用时，在仓库 **Settings → Pages → Build and deployment** 把 Source 设为 **GitHub Actions** 即可。工作流会自动：
+首次使用只需在仓库 **Settings → Pages → Build and deployment → Source** 选择 **GitHub Actions**（不要选 “Deploy from a branch”）。之后：
 
-- 安装依赖并执行 `npm run build`
-- 用 Pages 的实际地址设置 `PUBLIC_ORIGIN`
-- 项目站点自动设置子路径 `PUBLIC_BASE`（如 `/personal-blog/`），用户站点则为 `/`
+- **首次触发**：向 `main` 推送一次，或到 **Actions → Deploy static site → Run workflow** 手动运行
+- **访问地址**：项目站点为 `https://<user>.github.io/<repo>/`（例如 `https://aimyonmar.github.io/personal-blog/`）；若仓库名是 `<user>.github.io`，则地址为 `https://<user>.github.io/`
+- 工作流会自动安装依赖、执行 `npm run build`，并用 Pages 实际地址设置 `PUBLIC_ORIGIN`；项目站点还会自动设置子路径 `PUBLIC_BASE`（如 `/personal-blog/`），用户站点则为 `/`
+
+绑定自定义域名时，除了在 **Settings → Pages → Custom domain** 填写域名，还要在构建时显式指定站点地址，否则 sitemap、RSS、canonical、og:image 里的绝对地址仍是默认的 `github.io` 域名：
+
+```bash
+PUBLIC_ORIGIN=https://your-domain.com npm run build
+```
 
 如果部署在子路径而不是域名根目录，本地构建时这样指定：
 
