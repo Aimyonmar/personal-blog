@@ -1,4 +1,4 @@
-import { ImagePlus, Plus, RefreshCw, Save, Send } from 'lucide-react'
+import { CloudUpload, ImagePlus, Plus, RefreshCw, Save, Send } from 'lucide-react'
 import {
   useCallback,
   useEffect,
@@ -9,7 +9,13 @@ import {
   type ClipboardEvent,
 } from 'react'
 import { MarkdownArticle } from '../components/MarkdownArticle'
-import { writerApi, type WriterPostSummary } from './writerApi'
+import {
+  writerApi,
+  type PublishPlan,
+  type PublishRequest,
+  type SaveResult,
+  type WriterPostSummary,
+} from './writerApi'
 
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024
 const SLUG_RE = /^[\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)*$/u
@@ -79,6 +85,10 @@ export function WriterPage() {
   const [listLoading, setListLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [pushing, setPushing] = useState(false)
+  const [uploadedImages, setUploadedImages] = useState<string[]>([])
+  const [removedFiles, setRemovedFiles] = useState<string[]>([])
+  const [pendingPublish, setPendingPublish] = useState<{ request: PublishRequest; plan: PublishPlan } | null>(null)
   const [status, setStatus] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -124,6 +134,9 @@ export function WriterPage() {
     setSnapshot(JSON.stringify(next))
     setOriginalFile(null)
     setSlugTouched(false)
+    setUploadedImages([])
+    setRemovedFiles([])
+    setPendingPublish(null)
     setStatus(null)
   }
 
@@ -145,6 +158,9 @@ export function WriterPage() {
       setSnapshot(JSON.stringify(next))
       setOriginalFile(post.file)
       setSlugTouched(true)
+      setUploadedImages([])
+      setRemovedFiles([])
+      setPendingPublish(null)
       setStatus({ kind: 'ok', text: `已打开 content/posts/${post.file}` })
     } catch (error) {
       setStatus({ kind: 'error', text: errorMessage(error) })
@@ -184,6 +200,7 @@ export function WriterPage() {
         const result = await writerApi.upload(dataUrl)
         const alt = file.name.replace(/\.[^.]+$/, '') || '图片'
         insertMarkdown(`![${alt}](${result.path})`)
+        setUploadedImages((prev) => (prev.includes(result.path) ? prev : [...prev, result.path]))
         setStatus({ kind: 'ok', text: `图片已写入 content${result.path}` })
       }
     } catch (error) {
@@ -208,20 +225,20 @@ export function WriterPage() {
     void uploadFiles(Array.from(event.target.files ?? []))
   }
 
-  async function handleSave(publish: boolean) {
+  async function handleSave(publish: boolean): Promise<SaveResult | null> {
     const title = form.title.trim()
     const slug = form.slug.trim()
     if (!title) {
       setStatus({ kind: 'error', text: '请先填写标题' })
-      return
+      return null
     }
     if (!slug || !SLUG_RE.test(slug)) {
       setStatus({ kind: 'error', text: 'Slug 只允许字母、数字与连字符（不能以下划线或点开头）' })
-      return
+      return null
     }
     if (!form.body.trim()) {
       setStatus({ kind: 'error', text: '正文不能为空' })
-      return
+      return null
     }
 
     setBusy(true)
@@ -241,15 +258,69 @@ export function WriterPage() {
       setSnapshot(JSON.stringify(next))
       setOriginalFile(result.file)
       setSlugTouched(true)
+
+      const previous = result.previousFile
+      if (previous && previous !== result.file) {
+        setRemovedFiles((prev) => (prev.includes(previous) ? prev : [...prev, previous]))
+      }
+
       setStatus({
         kind: 'ok',
         text: publish ? `已发布 content/posts/${result.file}` : `草稿已保存 content/posts/${result.file}`,
       })
       await refreshList()
+      return result
+    } catch (error) {
+      setStatus({ kind: 'error', text: errorMessage(error) })
+      return null
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** 先把当前表单保存为正式文章，再向服务端要一份提交清单供用户确认。 */
+  async function handlePlanPublish() {
+    if (busy || pushing) return
+    setPendingPublish(null)
+
+    let file = originalFile
+    if (!file || dirty || !form.published) {
+      const result = await handleSave(true)
+      if (!result) return
+      file = result.file
+    }
+    if (!file) return
+
+    setPushing(true)
+    try {
+      const request: PublishRequest = { file, images: uploadedImages, removed: removedFiles }
+      const plan = await writerApi.planPublish(request)
+      setPendingPublish({ request, plan })
+      setStatus({ kind: 'ok', text: `将要提交 ${plan.files.length} 个文件，请确认后推送。` })
     } catch (error) {
       setStatus({ kind: 'error', text: errorMessage(error) })
     } finally {
-      setBusy(false)
+      setPushing(false)
+    }
+  }
+
+  async function confirmPublish() {
+    if (!pendingPublish || pushing) return
+    setPushing(true)
+    try {
+      const result = await writerApi.publish(pendingPublish.request)
+      setPendingPublish(null)
+      setUploadedImages([])
+      setRemovedFiles([])
+      setStatus({
+        kind: 'ok',
+        text: `已推送到 origin/main：${result.commit}（${result.files.length} 个文件），GitHub Pages 将自动更新。`,
+      })
+      await refreshList()
+    } catch (error) {
+      setStatus({ kind: 'error', text: errorMessage(error) })
+    } finally {
+      setPushing(false)
     }
   }
 
@@ -275,6 +346,39 @@ export function WriterPage() {
         <p className={status.kind === 'ok' ? 'writer-status is-ok' : 'writer-status is-error'} role="status">
           {status.text}
         </p>
+      )}
+
+      {pendingPublish && (
+        <div className="writer-publish-panel">
+          <div className="writer-publish-head">
+            <strong>确认提交并推送</strong>
+            <span>
+              分支 {pendingPublish.plan.branch} · {pendingPublish.plan.commitMessage}
+            </span>
+          </div>
+          <ul>
+            {pendingPublish.plan.files.map((file) => (
+              <li key={file.path}>
+                <code>{file.path}</code>
+                <em>{file.status}</em>
+              </li>
+            ))}
+          </ul>
+          <div className="writer-publish-actions">
+            <button className="writer-push" type="button" onClick={() => void confirmPublish()} disabled={pushing}>
+              <CloudUpload size={16} /> {pushing ? '推送中…' : '确认提交并推送'}
+            </button>
+            <button
+              className="text-button"
+              type="button"
+              onClick={() => setPendingPublish(null)}
+              disabled={pushing}
+            >
+              取消
+            </button>
+          </div>
+          <p className="writer-hint">只会提交上面列出的文件；不会执行 git add -A，也不会 force-push / reset。</p>
+        </div>
       )}
 
       <div className="writer-grid">
@@ -416,11 +520,17 @@ export function WriterPage() {
             <button className="text-button" type="button" onClick={() => void handleSave(false)} disabled={busy}>
               <Save size={16} /> {form.published ? '转为草稿' : '保存草稿'}
             </button>
-            <button className="writer-publish" type="button" onClick={() => void handleSave(true)} disabled={busy}>
+            <button className="writer-publish" type="button" onClick={() => void handleSave(true)} disabled={busy || pushing}>
               <Send size={16} /> {form.published ? '更新发布' : '发布'}
+            </button>
+            <button className="writer-push" type="button" onClick={() => void handlePlanPublish()} disabled={busy || pushing}>
+              <CloudUpload size={16} /> {pushing ? '处理中…' : '推送上线'}
             </button>
             <span className={dirty ? 'writer-dirty is-dirty' : 'writer-dirty'}>{dirty ? '有未保存的修改' : '已同步'}</span>
           </div>
+          <p className="writer-hint writer-push-hint">
+            「推送上线」会先把当前内容保存为正式文章，再只提交本文与本次上传的图片到 origin/main；草稿只留在本地，不会被推送。
+          </p>
         </div>
 
         <div className="writer-preview">

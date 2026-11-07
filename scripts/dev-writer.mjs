@@ -4,10 +4,14 @@
  * - 读写范围被钉死在 content/posts 与 content/images，文件名全部由服务端重新拼装并校验
  * - 零依赖，不联网，不引入登录或第三方服务
  */
+import { execFile } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 import { estimateReadTime, parseFrontmatter } from './content.mjs'
+
+const execFileAsync = promisify(execFile)
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const POSTS_DIR = path.join(root, 'content', 'posts')
@@ -129,6 +133,16 @@ async function assertNotSymlink(full) {
     if (stat.isSymbolicLink()) throw fail('拒绝写入符号链接')
   } catch (error) {
     if (error.code === 'ENOENT') return
+    throw error
+  }
+}
+
+async function assertRegularFile(full) {
+  try {
+    const stat = await fs.lstat(full)
+    if (stat.isSymbolicLink() || !stat.isFile()) throw fail('只允许发布普通文件')
+  } catch (error) {
+    if (error.code === 'ENOENT') throw fail('文件不存在，请先保存后再发布', 404)
     throw error
   }
 }
@@ -314,7 +328,13 @@ async function savePost(payload) {
   }
 
   lastWriteAt = Date.now()
-  return { file: targetName, slug, draft: !publish }
+  return {
+    file: targetName,
+    slug,
+    draft: !publish,
+    // 草稿转发布 / 改 slug 时旧文件已删除，发布时要把这个删除一起提交
+    previousFile: originalName && !samePath(originalFull, targetFull) ? originalName : null,
+  }
 }
 
 async function saveImage(payload) {
@@ -340,6 +360,191 @@ async function saveImage(payload) {
   await fs.writeFile(full, buffer, { flag: 'wx' })
 
   return { path: `/images/${name}`, mime: MIME_BY_EXT[ext], bytes: buffer.length }
+}
+
+/* ---------- 一键发布：只提交本文与本次图片，再 push origin main ---------- */
+
+const GIT_TIMEOUT_MS = 60_000
+
+/** 过滤 git 输出：不把带凭据的远端 URL 或 token 回传给前端。 */
+function sanitizeGitText(text) {
+  return String(text ?? '')
+    .replace(/https?:\/\/[^\s@]+@/gi, 'https://***@')
+    .replace(/\bgh[pousr]_[A-Za-z0-9]{10,}\b/g, '***')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 500)
+}
+
+async function git(args, { allowFailure = false } = {}) {
+  try {
+    const { stdout, stderr } = await execFileAsync('git', args, {
+      cwd: root,
+      timeout: GIT_TIMEOUT_MS,
+      maxBuffer: 4 * 1024 * 1024,
+      windowsHide: true,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' },
+    })
+    // 不裁剪 stdout：porcelain 状态码以空格开头（如 " M path"），裁剪会破坏解析
+    return { ok: true, stdout: String(stdout), stderr: String(stderr).trim() }
+  } catch (error) {
+    if (error.code === 'ENOENT') throw fail('未找到 git 命令，请安装 Git 并确保在 PATH 中', 500)
+    if (error.killed) throw fail('git 操作超时，请检查网络后重试', 504)
+    const stdout = String(error.stdout ?? '').trim()
+    const stderr = String(error.stderr ?? error.message ?? '').trim()
+    if (allowFailure) return { ok: false, stdout, stderr }
+    throw fail(`git 操作失败：${sanitizeGitText(stderr || stdout) || '未知错误'}`, 500)
+  }
+}
+
+async function assertGitContext() {
+  const top = await git(['rev-parse', '--show-toplevel'])
+  const actualRoot = process.platform === 'win32' ? path.resolve(top.stdout.trim()).toLowerCase() : path.resolve(top.stdout.trim())
+  const expectedRoot = process.platform === 'win32' ? path.resolve(root).toLowerCase() : path.resolve(root)
+  if (actualRoot !== expectedRoot) throw fail('当前目录不是 Git 仓库根目录，已阻止发布', 500)
+
+  const branch = await git(['symbolic-ref', '--short', '-q', 'HEAD'], { allowFailure: true })
+  const branchName = branch.stdout.trim()
+  if (!branch.ok || !branchName) throw fail('当前处于 detached HEAD，无法安全发布', 400)
+  if (branchName !== 'main') throw fail(`当前分支是 ${branchName}，只会推送到 main`, 400)
+
+  const conflicts = await git(['ls-files', '-u'])
+  if (conflicts.stdout.trim()) throw fail('仓库存在未解决的合并冲突，请先处理后再发布', 409)
+
+  const staged = await git(['diff', '--cached', '--name-only'])
+  if (staged.stdout.trim()) {
+    throw fail('暂存区已有其他改动，为避免误提交请先在终端提交或取消暂存（本工具不会 reset）', 409)
+  }
+
+  const remote = await git(['remote', 'get-url', 'origin'], { allowFailure: true })
+  if (!remote.ok) throw fail('未配置 origin 远端，无法推送', 400)
+
+  return branchName
+}
+
+function imageRelPath(ref) {
+  if (typeof ref !== 'string') throw fail('图片路径格式不正确')
+  const match = /^\/images\/([A-Za-z0-9][A-Za-z0-9._-]*)$/.exec(ref.trim())
+  if (!match) throw fail('图片路径不合法：只允许 /images/<文件名> 的形式')
+  const name = match[1]
+  const ext = path.extname(name).slice(1).toLowerCase()
+  if (!MIME_BY_EXT[ext]) throw fail('不支持的图片类型')
+  return { rel: `content/images/${name}`, full: resolveInside(IMAGES_DIR, name) }
+}
+
+function describeStatus(code) {
+  if (code === '??') return '新增'
+  if (code.includes('D')) return '删除'
+  if (code.includes('A') || code.includes('R')) return '新增'
+  return '修改'
+}
+
+function parseStatus(raw) {
+  return raw
+    .split('\0')
+    .filter(Boolean)
+    .map((entry) => {
+      const code = entry.slice(0, 2)
+      return { code, path: entry.slice(3).trim().replace(/\\/g, '/'), status: describeStatus(code) }
+    })
+    .filter((entry) => entry.path)
+}
+
+/** 校验发布范围，返回本次真正有变化的文件（不包含工作区其他改动）。 */
+async function buildPublishContext(payload) {
+  if (!payload || typeof payload !== 'object') throw fail('请求体格式不正确')
+  if (typeof payload.file !== 'string' || !payload.file) throw fail('缺少要发布的文章文件')
+
+  const post = resolvePostFile(payload.file)
+  if (post.draft) throw fail('草稿不入库：请先点「发布」转为正式文章后再推送', 400)
+  await assertRegularFile(post.full)
+
+  const raw = await fs.readFile(post.full, 'utf8')
+  const { data } = parseFrontmatter(raw)
+  const title = typeof data.title === 'string' && data.title ? data.title : post.slug
+  const postRel = `content/posts/${payload.file}`
+
+  if (payload.images !== undefined && !Array.isArray(payload.images)) throw fail('图片列表格式不正确')
+  const images = payload.images ?? []
+  if (images.length > 30) throw fail('单次最多提交 30 张图片')
+  const imageRels = []
+  for (const ref of images) {
+    const image = imageRelPath(ref)
+    await assertRegularFile(image.full)
+    imageRels.push(image.rel)
+  }
+
+  if (payload.removed !== undefined && !Array.isArray(payload.removed)) throw fail('删除列表格式不正确')
+  const removed = payload.removed ?? []
+  if (removed.length > 30) throw fail('单次删除的文件过多')
+  const removedRels = []
+  for (const name of removed) {
+    if (typeof name !== 'string' || !name) continue
+    const parsed = resolvePostFile(name)
+    if (samePath(parsed.full, post.full)) continue
+    removedRels.push(`content/posts/${name}`)
+  }
+
+  const candidates = [...new Set([postRel, ...imageRels, ...removedRels])]
+  const changes = parseStatus((await git(['status', '--porcelain=v1', '-z', '--', ...candidates])).stdout)
+  if (changes.length === 0) throw fail('没有需要提交的改动：内容与上一次提交一致', 400)
+
+  // git status 已按 pathspec 过滤，这里再按白名单核对一次，防止任何范围外文件混入
+  const allowed = new Set(candidates)
+  for (const change of changes) {
+    if (!allowed.has(change.path)) throw fail(`检测到范围外的改动：${change.path}`, 500)
+  }
+
+  const postTracked = (await git(['ls-files', '--error-unmatch', '--', postRel], { allowFailure: true })).ok
+  let removedTracked = false
+  for (const rel of removedRels) {
+    if ((await git(['ls-files', '--error-unmatch', '--', rel], { allowFailure: true })).ok) removedTracked = true
+  }
+  const isNew = !postTracked && !removedTracked
+
+  return {
+    allowed,
+    paths: changes.map((change) => change.path),
+    files: changes.map((change) => ({ path: change.path, status: change.status })),
+    commitMessage: `post: ${isNew ? '发布' : '更新'}《${title.replace(/\s+/g, ' ').trim().slice(0, 60)}》`,
+  }
+}
+
+async function planPublish(payload) {
+  const branch = await assertGitContext()
+  const context = await buildPublishContext(payload)
+  return { branch, commitMessage: context.commitMessage, files: context.files }
+}
+
+async function executePublish(payload) {
+  await assertGitContext()
+  const context = await buildPublishContext(payload)
+
+  await git(['add', '-A', '--', ...context.paths])
+
+  const staged = (await git(['diff', '--cached', '--name-only', '-z'])).stdout
+    .split('\0')
+    .filter(Boolean)
+    .map((item) => item.replace(/\\/g, '/'))
+  if (staged.length === 0) throw fail('暂存后没有可提交的改动，请刷新后重试', 409)
+
+  const outside = staged.filter((item) => !context.allowed.has(item))
+  if (outside.length) throw fail(`检测到范围外的暂存文件，已停止提交：${outside.join(', ')}`, 500)
+
+  await git(['commit', '-m', context.commitMessage])
+  const commit = (await git(['rev-parse', '--short', 'HEAD'])).stdout.trim()
+
+  const pushed = await git(['push', 'origin', 'main'], { allowFailure: true })
+  if (!pushed.ok) {
+    const detail = sanitizeGitText(pushed.stderr || pushed.stdout) || '未知错误'
+    const hint = /non-fast-forward|rejected|fetch first/i.test(detail)
+      ? '远端已有新提交，请先在终端执行 git pull --rebase 后重试。'
+      : '请检查网络、GitHub 凭据与仓库权限。'
+    // 提交已生成但推送失败：明确告知，绝不 force-push 或撤销本地提交
+    throw fail(`本地提交 ${commit} 已生成，但推送失败：${detail} ${hint}本工具不会强制推送。`, 502)
+  }
+
+  return { ok: true, branch: 'main', commit, files: context.files, pushed: true }
 }
 
 async function serveImage(req, res, url, next) {
@@ -399,7 +604,14 @@ async function handleApi(req, res, url) {
     return
   }
 
-  if (['/posts', '/post', '/save', '/image'].includes(route)) throw fail('请求方法不支持', 405)
+  if (route === '/publish' && req.method === 'POST') {
+    if (!/json/i.test(req.headers['content-type'] ?? '')) throw fail('Content-Type 需为 application/json', 415)
+    const payload = await readJson(req)
+    sendJson(res, 200, payload.dryRun === true ? await planPublish(payload) : await executePublish(payload))
+    return
+  }
+
+  if (['/posts', '/post', '/save', '/image', '/publish'].includes(route)) throw fail('请求方法不支持', 405)
   throw fail('接口不存在', 404)
 }
 

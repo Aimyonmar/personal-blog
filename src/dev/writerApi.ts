@@ -40,12 +40,38 @@ export interface SaveResult {
   file: string
   slug: string
   draft: boolean
+  previousFile: string | null
 }
 
 export interface ImageResult {
   path: string
   mime: string
   bytes: number
+}
+
+export interface PublishRequest {
+  file: string
+  images: string[]
+  removed: string[]
+}
+
+export interface PublishFile {
+  path: string
+  status: string
+}
+
+export interface PublishPlan {
+  branch: string
+  commitMessage: string
+  files: PublishFile[]
+}
+
+export interface PublishResult {
+  ok: true
+  branch: string
+  commit: string
+  files: PublishFile[]
+  pushed: true
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -71,4 +97,8 @@ export const writerApi = {
   read: (file: string) => request<WriterPost>(`/__writer/api/post?file=${encodeURIComponent(file)}`),
   save: (payload: SavePayload) => postJson<SaveResult>('/__writer/api/save', payload),
   upload: (dataUrl: string) => postJson<ImageResult>('/__writer/api/image', { dataUrl }),
+  planPublish: (payload: PublishRequest) =>
+    postJson<PublishPlan>('/__writer/api/publish', { ...payload, dryRun: true }),
+  publish: (payload: PublishRequest) =>
+    postJson<PublishResult>('/__writer/api/publish', { ...payload, dryRun: false }),
 }
