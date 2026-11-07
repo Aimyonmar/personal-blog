@@ -165,6 +165,17 @@ function yamlString(value) {
   return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
 }
 
+/** 系列序号：空串/缺省为 null；只接受 0–9999 的整数。 */
+function normalizeSeriesOrder(value) {
+  if (value === undefined || value === null) return null
+  const text = String(value).trim()
+  if (!text) return null
+  if (!/^\d+$/.test(text)) throw fail('系列序号需为不小于 0 的整数')
+  const order = Number(text)
+  if (!Number.isSafeInteger(order) || order > 9999) throw fail('系列序号需在 0–9999 之间')
+  return order
+}
+
 function normalizeTags(value) {
   if (value === undefined || value === null) return []
   if (!Array.isArray(value)) throw fail('标签格式不正确')
@@ -254,6 +265,11 @@ async function readPost(name) {
     summary: typeof data.summary === 'string' ? data.summary : '',
     tags,
     publishedAt: typeof data.published_at === 'string' ? data.published_at : '',
+    series: typeof data.series === 'string' ? data.series.replace(/\s+/g, ' ').trim() : '',
+    seriesOrder:
+      typeof data.series_order === 'number' || typeof data.series_order === 'string'
+        ? String(data.series_order)
+        : '',
     body,
   }
 }
@@ -267,6 +283,8 @@ async function savePost(payload) {
   if (!SLUG_RE.test(slug)) throw fail('Slug 只允许字母、数字与连字符（中文也可，但会被 URL 编码）')
 
   const tags = normalizeTags(payload.tags)
+  const series = collapsedText(payload.series, '系列名', 80)
+  const seriesOrder = normalizeSeriesOrder(payload.seriesOrder)
   const publish = payload.publish === true
 
   let publishedAt = collapsedText(payload.publishedAt, '发布时间', 10)
@@ -305,6 +323,8 @@ async function savePost(payload) {
     `title: ${yamlString(title)}`,
     ...(summary ? [`summary: ${yamlString(summary)}`] : []),
     ...(tags.length ? [`tags: [${tags.map(yamlString).join(', ')}]`] : []),
+    ...(series ? [`series: ${yamlString(series)}`] : []),
+    ...(series && seriesOrder !== null ? [`series_order: ${seriesOrder}`] : []),
     `published_at: ${publishedAt}`,
     `updated_at: ${todayLocal()}`,
     `read_time: ${estimateReadTime(body)}`,

@@ -18,6 +18,10 @@ export interface PostMeta {
   cover_image: string | null
   attachments: Attachment[]
   read_time: number
+  /** 所属系列名；未填为 null。大小写与空白差异视为同一系列。 */
+  series: string | null
+  /** 系列内序号；未填或非法值为 null，排序时排在有序号的篇目之后。 */
+  series_order: number | null
 }
 
 export type ArticleListItem = PostMeta

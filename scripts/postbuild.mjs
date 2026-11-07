@@ -7,7 +7,7 @@ import { cp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadPosts } from './content.mjs'
-import { injectArticleMeta, renderRobots, renderRss, renderSitemap } from './blog-data.mjs'
+import { buildSeries, injectArticleMeta, injectSeriesMeta, renderRobots, renderRss, renderSitemap } from './blog-data.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const distDir = path.join(root, 'dist')
@@ -39,6 +39,13 @@ for (const post of posts) {
   await writeFile(path.join(dir, 'index.html'), injectArticleMeta(template, post, siteUrl), 'utf8')
 }
 
+const seriesList = buildSeries(posts)
+for (const series of seriesList) {
+  const dir = path.join(distDir, 'series', series.slug)
+  await mkdir(dir, { recursive: true })
+  await writeFile(path.join(dir, 'index.html'), injectSeriesMeta(template, series, siteUrl), 'utf8')
+}
+
 // 写作台上传到 content/images 的图片随构建一起发布（dev 下由 writer 插件直接托管）
 try {
   await cp(path.join(root, 'content', 'images'), path.join(distDir, 'images'), { recursive: true })
@@ -49,7 +56,7 @@ try {
 // 静态托管（GitHub Pages / Netlify 等）的 SPA 回退
 await cp(path.join(distDir, 'index.html'), path.join(distDir, '404.html'))
 
-console.log(`[seo] 已生成 sitemap/rss/robots 与 ${posts.length} 个文章页（site: ${siteUrl}/）`)
+console.log(`[seo] 已生成 sitemap/rss/robots 与 ${posts.length} 个文章页、${seriesList.length} 个系列页（site: ${siteUrl}/）`)
 if (!process.env.PUBLIC_ORIGIN) {
   console.log('[seo] 提示：部署到自有域名时用 PUBLIC_ORIGIN=https://your-domain 重新构建，绝对地址才正确')
 }

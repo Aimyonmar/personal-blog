@@ -25,6 +25,8 @@ interface EditorForm {
   slug: string
   summary: string
   tags: string
+  series: string
+  seriesOrder: string
   publishedAt: string
   body: string
   published: boolean
@@ -41,6 +43,8 @@ function emptyForm(): EditorForm {
     slug: '',
     summary: '',
     tags: '',
+    series: '',
+    seriesOrder: '',
     publishedAt: todayLocal(),
     body: '',
     published: false,
@@ -150,6 +154,8 @@ export function WriterPage() {
         slug: post.slug,
         summary: post.summary,
         tags: post.tags.join(', '),
+        series: post.series,
+        seriesOrder: post.seriesOrder,
         publishedAt: post.publishedAt || todayLocal(),
         body: post.body,
         published: !post.draft,
@@ -249,6 +255,8 @@ export function WriterPage() {
         title,
         summary: form.summary,
         tags: splitTags(form.tags),
+        series: form.series,
+        seriesOrder: form.seriesOrder,
         publishedAt: form.publishedAt,
         body: form.body,
         publish,
@@ -481,6 +489,32 @@ export function WriterPage() {
                   value={form.publishedAt}
                   onChange={(event) => setForm((prev) => ({ ...prev, publishedAt: event.target.value }))}
                 />
+              </label>
+            </div>
+
+            <div className="writer-field-row">
+              <label>
+                系列（可选）
+                <input
+                  type="text"
+                  value={form.series}
+                  maxLength={80}
+                  placeholder="例如：把博客搬回自己手里"
+                  onChange={(event) => setForm((prev) => ({ ...prev, series: event.target.value }))}
+                />
+                <small>填写后文章页会显示系列导航，并生成 /series/… 系列页；留空不影响现有行为。</small>
+              </label>
+              <label>
+                系列序号（可选）
+                <input
+                  type="number"
+                  min={0}
+                  max={9999}
+                  value={form.seriesOrder}
+                  placeholder="1"
+                  onChange={(event) => setForm((prev) => ({ ...prev, seriesOrder: event.target.value }))}
+                />
+                <small>决定系列内顺序；留空会排在有序号的篇目之后。</small>
               </label>
             </div>
           </div>

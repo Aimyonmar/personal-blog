@@ -4,7 +4,9 @@ import path from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { loadPosts, parseFrontmatter } from './content.mjs'
 import {
+  buildSeries,
   injectArticleMeta,
+  injectSeriesMeta,
   renderRss,
   renderRobots,
   renderSitemap,
@@ -180,5 +182,69 @@ describe('injectArticleMeta', () => {
     const html = injectArticleMeta(template, { ...posts[0], title: '标题 </script><script>' }, origin)
     expect(html).toContain('"@type":"BlogPosting"')
     expect(html).not.toContain('</script><script>')
+  })
+})
+
+describe('buildSeries', () => {
+  const seriesPosts = [
+    { slug: 'b', title: 'B', series: 'Build  Log', series_order: 2, published_at: '2026-02-01T00:00:00.000Z' },
+    { slug: 'a', title: 'A', series: 'build log', series_order: 1, published_at: '2026-03-01T00:00:00.000Z' },
+    { slug: 'c', title: 'C', series: 'Build Log', series_order: null, published_at: '2026-01-01T00:00:00.000Z' },
+    { slug: 'solo', title: 'Solo', series: '单篇系列', series_order: 1, published_at: '2026-01-01T00:00:00.000Z' },
+    { slug: 'plain', title: 'Plain', series: null, series_order: null, published_at: '2026-01-01T00:00:00.000Z' },
+  ]
+
+  it('合并大小写/空白差异，并按序号排序、缺序号排最后', () => {
+    const [group] = buildSeries(seriesPosts)
+    expect(buildSeries(seriesPosts)).toHaveLength(2)
+    expect(group.name).toBe('Build Log')
+    expect(group.slug).toBe('build-log')
+    expect(group.items.map((item) => item.slug)).toEqual(['a', 'b', 'c'])
+    expect(group.total).toBe(3)
+  })
+
+  it('单篇系列成立，未填系列不参与分组', () => {
+    const groups = buildSeries(seriesPosts)
+    expect(groups.find((group) => group.slug === '单篇系列')?.total).toBe(1)
+    expect(groups.some((group) => group.items.some((item) => item.slug === 'plain'))).toBe(false)
+  })
+})
+
+describe('renderSitemap 系列页', () => {
+  it('为系列输出 /series/ 条目并带 lastmod', () => {
+    const body = renderSitemap(
+      [{ slug: 'a', series: 'Build Log', series_order: 1, published_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-02-03T00:00:00.000Z' }],
+      origin,
+    )
+    expect(body).toContain('<loc>https://example.com/series/build-log</loc>')
+    expect(body).toContain('<lastmod>2026-02-03</lastmod>')
+  })
+
+  it('没有系列时不产生系列条目', () => {
+    expect(renderSitemap([], origin)).not.toContain('/series/')
+  })
+})
+
+describe('injectSeriesMeta', () => {
+  const template = `<!doctype html><html><head>
+    <meta name="description" content="旧描述" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="旧标题" />
+    <meta property="og:description" content="旧描述" />
+    <meta property="og:url" content="https://example.com/" />
+    <meta name="twitter:title" content="旧标题" />
+    <meta name="twitter:description" content="旧描述" />
+    <title>旧标题</title>
+  </head><body></body></html>`
+
+  it('注入系列标题、描述与 canonical', () => {
+    const series = { name: 'Build Log', slug: 'build-log', total: 3 }
+    const html = injectSeriesMeta(template, series, origin)
+    expect(html).toContain('<title>Build Log｜系列 | 微光手记</title>')
+    expect(html).toContain('content="「Build Log」系列共 3 篇，按顺序排列。"')
+    expect(html).toContain('<meta property="og:type" content="website" />')
+    expect(html).toContain('content="https://example.com/series/build-log"')
+    expect(html).toContain('<link rel="canonical" href="https://example.com/series/build-log" />')
+    expect(html).not.toContain('旧标题')
   })
 })

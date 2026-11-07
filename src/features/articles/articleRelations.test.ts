@@ -14,6 +14,8 @@ function post(slug: string, publishedAt: string | null, tags: string[] = []): Ar
     cover_image: null,
     attachments: [],
     read_time: 1,
+    series: null,
+    series_order: null,
   }
 }
 

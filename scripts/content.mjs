@@ -107,6 +107,13 @@ function asStringList(value) {
   return text ? [text] : []
 }
 
+/** 系列序号：只接受非负整数；缺省、空串或非法值一律视为未填。 */
+function asSeriesOrder(value) {
+  if (typeof value === 'number') return Number.isFinite(value) && value >= 0 ? value : null
+  const text = asString(value)
+  return /^\d+$/.test(text) ? Number(text) : null
+}
+
 function normalizeAttachments(value) {
   if (!Array.isArray(value)) return []
   return value
@@ -172,6 +179,8 @@ export async function loadPosts({ contentDir = DEFAULT_CONTENT_DIR, includeConte
       cover_image: asString(data.cover_image) || null,
       attachments: normalizeAttachments(data.attachments),
       read_time: Number(data.read_time) || estimateReadTime(body),
+      series: asString(data.series) || null,
+      series_order: asSeriesOrder(data.series_order),
     }
     if (includeContent) post.content = body
     posts.push(post)

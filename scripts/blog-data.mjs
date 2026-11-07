@@ -61,6 +61,90 @@ export function renderRobots(origin) {
   ].join('\n')
 }
 
+/** 系列名归一：折叠连续空白并去首尾空格；空串视为未填。 */
+export function normalizeSeriesName(value) {
+  return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : ''
+}
+
+/** 系列页路由片段：小写、空白与标点折叠成连字符；归一后为空时退回 `series`。 */
+export function seriesSlug(name) {
+  const key = normalizeSeriesName(name).toLowerCase()
+  const slug = key.replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '')
+  return slug || 'series'
+}
+
+function orderOf(post) {
+  const raw = post.series_order
+  return typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 ? raw : null
+}
+
+/** 系列内排序：有序号的按序号升序，缺序号的排最后；同序号/同缺失时按发布时间升序，再按 slug。 */
+function compareSeriesPosts(a, b) {
+  const left = orderOf(a)
+  const right = orderOf(b)
+  if (left !== null && right !== null && left !== right) return left - right
+  if ((left === null) !== (right === null)) return left === null ? 1 : -1
+  const leftTime = Date.parse(a.published_at ?? '') || 0
+  const rightTime = Date.parse(b.published_at ?? '') || 0
+  if (leftTime !== rightTime) {
+    if (!leftTime) return 1
+    if (!rightTime) return -1
+    return leftTime - rightTime
+  }
+  return a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0
+}
+
+/** 展示名：取出现次数最多的写法；票数相同取排序最靠前的一篇，保证结果确定。 */
+function displayName(items) {
+  const counts = new Map()
+  for (const item of items) {
+    const spelling = normalizeSeriesName(item.series)
+    counts.set(spelling, (counts.get(spelling) ?? 0) + 1)
+  }
+  let name = normalizeSeriesName(items[0].series)
+  let best = counts.get(name) ?? 0
+  for (const [spelling, count] of counts) {
+    if (count > best) {
+      name = spelling
+      best = count
+    }
+  }
+  return name
+}
+
+/**
+ * 按系列聚合并排序。系列名大小写/空白差异视为同一系列，
+ * 展示名取出现次数最多的写法；slug 冲突时按系列 key 字典序追加 `-2`、`-3`。
+ */
+export function buildSeries(posts) {
+  const groups = new Map()
+  for (const post of posts) {
+    const name = normalizeSeriesName(post.series)
+    if (!name) continue
+    const key = name.toLowerCase()
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(post)
+  }
+
+  const used = new Set()
+  return [...groups.keys()].sort().map((key) => {
+    const items = [...groups.get(key)].sort(compareSeriesPosts)
+    const name = displayName(items)
+    let slug = seriesSlug(name)
+    if (used.has(slug)) {
+      let index = 2
+      while (used.has(`${slug}-${index}`)) index += 1
+      slug = `${slug}-${index}`
+    }
+    used.add(slug)
+    const lastmod = items
+      .map((item) => isoDate(item.updated_at ?? item.published_at))
+      .filter(Boolean)
+      .sort((a, b) => b - a)[0] ?? null
+    return { key, name, slug, items, total: items.length, lastmod }
+  })
+}
+
 export function renderSitemap(posts, origin) {
   const staticUrls = ['/', '/tags', '/about']
   const staticEntries = staticUrls.map(
@@ -78,12 +162,25 @@ export function renderSitemap(posts, origin) {
       .filter(Boolean)
       .join('\n')
   })
+  const seriesEntries = buildSeries(posts).map((series) => {
+    const lastmod = series.lastmod
+    return [
+      '  <url>',
+      `    <loc>${escapeXml(`${origin}/series/${encodeURIComponent(series.slug)}`)}</loc>`,
+      lastmod ? `    <lastmod>${lastmod.toISOString().slice(0, 10)}</lastmod>` : '',
+      '    <changefreq>weekly</changefreq>',
+      '  </url>',
+    ]
+      .filter(Boolean)
+      .join('\n')
+  })
 
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
     ...staticEntries,
     ...postEntries,
+    ...seriesEntries,
     '</urlset>',
     '',
   ].join('\n')
@@ -177,4 +274,24 @@ export function injectArticleMeta(template, post, origin) {
     .join('\n    ')
 
   return html.replace('</head>', `  ${extra}\n  </head>`)
+}
+
+/** 把系列级 title / description / Open Graph / canonical 注入 SPA 的 index.html。 */
+export function injectSeriesMeta(template, series, origin) {
+  const title = `${series.name}｜系列 | ${SITE.name}`
+  const description = `「${series.name}」系列共 ${series.total} 篇，按顺序排列。`
+  const canonical = `${origin}/series/${encodeURIComponent(series.slug)}`
+
+  let html = template
+    .replace(/<title>[\s\S]*?<\/title>/, `<title>${escapeHtml(title)}</title>`)
+    .replace(/(<meta name="description" content=")[^"]*(")/, `$1${escapeHtml(description)}$2`)
+
+  html = setMeta(html, 'og:type', 'website')
+  html = setMeta(html, 'og:title', title)
+  html = setMeta(html, 'og:description', description)
+  html = setMeta(html, 'og:url', canonical)
+  html = setMeta(html, 'twitter:title', title)
+  html = setMeta(html, 'twitter:description', description)
+
+  return html.replace('</head>', `  <link rel="canonical" href="${escapeHtml(canonical)}" />\n  </head>`)
 }

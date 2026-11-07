@@ -1101,3 +1101,73 @@ img { display: block; max-width: 100%; }
   .writer-field-row { grid-template-columns: minmax(0, 1fr); }
   .writer-post-list { max-height: 260px; }
 }
+
+/* ---------- 系列 ---------- */
+
+.article-series {
+  margin: 72px 0 0;
+  padding: 30px 32px 26px;
+  border: 1.5px solid var(--ink);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.article-series-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.article-series-head h2 {
+  margin: 10px 0 0;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(1.5rem, 2.4vw, 2rem);
+}
+
+.article-series-head h2 a { border-bottom: 2px solid var(--accent); padding-bottom: 3px; }
+.article-series-head h2 a:hover { color: var(--accent); }
+
+.article-series-progress {
+  margin: 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+}
+
+.article-series-nav {
+  margin: 22px 0 0;
+  padding: 16px 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  border-top: 1px dashed var(--line);
+  border-bottom: 1px dashed var(--line);
+  font-size: 14px;
+}
+
+.article-series-nav a { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; max-width: 100%; }
+.article-series-nav a:hover { color: var(--accent); }
+.article-series-nav span { color: var(--muted); font-size: 13px; }
+
+.article-series-list { list-style: none; margin: 18px 0 0; padding: 0; display: grid; gap: 2px; }
+
+.article-series-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  padding: 9px 10px;
+  border-radius: var(--radius-xs);
+}
+
+.article-series-list li.current { background: var(--accent-tint); }
+.article-series-list li.current span:last-child { font-weight: 700; }
+.article-series-list .series-index { color: var(--muted); font-family: var(--font-mono); font-size: 11px; }
+.article-series-list a:hover { color: var(--accent); }
+
+.series-page .article-list { margin-top: 36px; }

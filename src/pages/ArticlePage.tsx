@@ -5,11 +5,13 @@ import type { Article } from '../app/types'
 import { usePageMeta } from '../app/usePageMeta'
 import { formatDate } from '../components/ArticleCard'
 import { ArticleConnections } from '../components/ArticleConnections'
+import { ArticleSeries } from '../components/ArticleSeries'
 import { ArticleToc } from '../components/ArticleToc'
 import { MarkdownArticle } from '../components/MarkdownArticle'
 import { ErrorState, LoadingState } from '../components/States'
 import { getArticleBySlug, listPublishedArticles } from '../features/articles/localContent'
 import { selectAdjacent, selectRelated } from '../features/articles/articleRelations'
+import { selectSeriesMembership } from '../features/articles/series'
 
 function formatFileSize(size: number) {
   if (!size) return ''
@@ -27,6 +29,7 @@ export function ArticlePage() {
   const siblings = listPublishedArticles()
   const { previous, next } = useMemo(() => selectAdjacent(siblings, slug), [siblings, slug])
   const related = useMemo(() => (article ? selectRelated(siblings, article) : []), [siblings, article])
+  const membership = useMemo(() => selectSeriesMembership(siblings, slug), [siblings, slug])
 
   usePageMeta({
     title: article?.title ?? '正在读取文章',
@@ -83,6 +86,8 @@ export function ArticlePage() {
         </aside>
         <MarkdownArticle content={article.content} />
       </div>
+
+      {membership && <ArticleSeries membership={membership} currentSlug={slug} />}
 
       <ArticleConnections previous={previous} next={next} related={related} />
 

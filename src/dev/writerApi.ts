@@ -21,6 +21,8 @@ export interface WriterPost {
   title: string
   summary: string
   tags: string[]
+  series: string
+  seriesOrder: string
   publishedAt: string
   body: string
 }
@@ -31,6 +33,9 @@ export interface SavePayload {
   title: string
   summary: string
   tags: string[]
+  /** 可选：系列名与系列内序号，留空则写入时省略这两个字段。 */
+  series?: string
+  seriesOrder?: string
   publishedAt: string
   body: string
   publish: boolean
