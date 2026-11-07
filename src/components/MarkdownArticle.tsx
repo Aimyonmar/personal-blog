@@ -20,8 +20,19 @@ function heading(Tag: 'h2' | 'h3') {
   }
 }
 
+/**
+ * 正文里的根路径图片（如 /images/a.png）补上部署子路径，
+ * 保证 GitHub Pages 这类部署在 /repo/ 下的站点也能显示。
+ */
+function resolveImageSrc(src: string | undefined) {
+  if (!src || !src.startsWith('/') || src.startsWith('//')) return src
+  return `${import.meta.env.BASE_URL}${src.slice(1)}`
+}
+
 const components: Components = {
-  img: ({ node: _node, ...props }) => <img {...props} loading="lazy" decoding="async" />,
+  img: ({ node: _node, src, ...props }) => (
+    <img {...props} src={resolveImageSrc(src)} loading="lazy" decoding="async" />
+  ),
   pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
   h2: heading('h2'),
   h3: heading('h3'),

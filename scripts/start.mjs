@@ -31,6 +31,7 @@ const INPUTS = [
   'tsconfig.node.json',
   'scripts/content.mjs',
   'scripts/build-content.mjs',
+  'scripts/dev-writer.mjs',
   'scripts/blog-data.mjs',
   'scripts/postbuild.mjs',
 ]

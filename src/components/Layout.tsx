@@ -9,6 +9,7 @@ const navItems = [
   { to: '/', label: '文章' },
   { to: '/tags', label: '标签' },
   { to: '/about', label: '关于' },
+  ...(import.meta.env.DEV ? [{ to: '/write', label: '写作' }] : []),
 ]
 
 export function Layout() {

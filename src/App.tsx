@@ -10,6 +10,11 @@ const TagsPage = lazy(() => import('./pages/TagsPage').then((module) => ({ defau
 const AboutPage = lazy(() => import('./pages/AboutPage').then((module) => ({ default: module.AboutPage })))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage').then((module) => ({ default: module.NotFoundPage })))
 
+// 写作台只在 dev 注册；生产构建里 DEV 为 false，打包时整块分支和动态 import 都会被移除
+const WriterPage = import.meta.env.DEV
+  ? lazy(() => import('./dev/WriterPage').then((module) => ({ default: module.WriterPage })))
+  : null
+
 function RouteFallback() {
   return (
     <section className="content-section page-section">
@@ -29,6 +34,7 @@ export default function App() {
             <Route path="article/:slug" element={<ArticlePage />} />
             <Route path="tags" element={<TagsPage />} />
             <Route path="about" element={<AboutPage />} />
+            {WriterPage && <Route path="write" element={<WriterPage />} />}
             <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Routes>

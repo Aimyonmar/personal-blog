@@ -1,0 +1,444 @@
+import { ImagePlus, Plus, RefreshCw, Save, Send } from 'lucide-react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type ClipboardEvent,
+} from 'react'
+import { MarkdownArticle } from '../components/MarkdownArticle'
+import { writerApi, type WriterPostSummary } from './writerApi'
+
+const MAX_IMAGE_BYTES = 6 * 1024 * 1024
+const SLUG_RE = /^[\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)*$/u
+
+interface EditorForm {
+  title: string
+  slug: string
+  summary: string
+  tags: string
+  publishedAt: string
+  body: string
+  published: boolean
+}
+
+function todayLocal() {
+  const now = new Date()
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
+}
+
+function emptyForm(): EditorForm {
+  return {
+    title: '',
+    slug: '',
+    summary: '',
+    tags: '',
+    publishedAt: todayLocal(),
+    body: '',
+    published: false,
+  }
+}
+
+/** 由标题生成 slug：保留中英文与数字，其余字符折叠成连字符。 */
+function slugify(title: string) {
+  const base = title
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64)
+  return base || `post-${todayLocal().replace(/-/g, '')}`
+}
+
+function splitTags(value: string) {
+  return [...new Set(value.split(/[,，、]/).map((tag) => tag.trim()).filter(Boolean))]
+}
+
+function readAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(new Error('读取图片失败'))
+    reader.readAsDataURL(file)
+  })
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : '操作失败，请重试'
+}
+
+export function WriterPage() {
+  const [form, setForm] = useState<EditorForm>(emptyForm)
+  const [snapshot, setSnapshot] = useState(() => JSON.stringify(emptyForm()))
+  const [originalFile, setOriginalFile] = useState<string | null>(null)
+  const [posts, setPosts] = useState<WriterPostSummary[]>([])
+  const [slugTouched, setSlugTouched] = useState(false)
+  const [listLoading, setListLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [status, setStatus] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const dirty = useMemo(() => JSON.stringify(form) !== snapshot, [form, snapshot])
+  const draftFile = `${form.published ? '' : '_'}${form.slug || 'draft'}.md`
+
+  const refreshList = useCallback(async () => {
+    setListLoading(true)
+    try {
+      const result = await writerApi.list()
+      setPosts(result.posts)
+    } catch (error) {
+      setStatus({ kind: 'error', text: errorMessage(error) })
+    } finally {
+      setListLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshList()
+  }, [refreshList])
+
+  // 关闭 / 刷新页面时，如果还有未保存的修改就交给浏览器确认
+  useEffect(() => {
+    if (!dirty) return
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [dirty])
+
+  function confirmDiscard() {
+    return !dirty || window.confirm('当前修改还没有保存，确定要离开吗？')
+  }
+
+  function startNew() {
+    if (!confirmDiscard()) return
+    const next = emptyForm()
+    setForm(next)
+    setSnapshot(JSON.stringify(next))
+    setOriginalFile(null)
+    setSlugTouched(false)
+    setStatus(null)
+  }
+
+  async function openPost(file: string) {
+    if (!confirmDiscard()) return
+    setBusy(true)
+    try {
+      const post = await writerApi.read(file)
+      const next: EditorForm = {
+        title: post.title,
+        slug: post.slug,
+        summary: post.summary,
+        tags: post.tags.join(', '),
+        publishedAt: post.publishedAt || todayLocal(),
+        body: post.body,
+        published: !post.draft,
+      }
+      setForm(next)
+      setSnapshot(JSON.stringify(next))
+      setOriginalFile(post.file)
+      setSlugTouched(true)
+      setStatus({ kind: 'ok', text: `已打开 content/posts/${post.file}` })
+    } catch (error) {
+      setStatus({ kind: 'error', text: errorMessage(error) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function insertMarkdown(snippet: string) {
+    const textarea = textareaRef.current
+    const start = textarea?.selectionStart ?? form.body.length
+    const end = textarea?.selectionEnd ?? start
+    setForm((prev) => ({ ...prev, body: `${prev.body.slice(0, start)}${snippet}${prev.body.slice(end)}` }))
+    requestAnimationFrame(() => {
+      const element = textareaRef.current
+      if (!element) return
+      const position = start + snippet.length
+      element.focus()
+      element.setSelectionRange(position, position)
+    })
+  }
+
+  async function uploadFiles(files: File[]) {
+    if (!files.length) return
+    setUploading(true)
+    try {
+      for (const file of files) {
+        if (!file.type.startsWith('image/')) {
+          setStatus({ kind: 'error', text: `${file.name} 不是图片文件` })
+          continue
+        }
+        if (file.size > MAX_IMAGE_BYTES) {
+          setStatus({ kind: 'error', text: `${file.name} 超过 6 MB` })
+          continue
+        }
+        const dataUrl = await readAsDataUrl(file)
+        const result = await writerApi.upload(dataUrl)
+        const alt = file.name.replace(/\.[^.]+$/, '') || '图片'
+        insertMarkdown(`![${alt}](${result.path})`)
+        setStatus({ kind: 'ok', text: `图片已写入 content${result.path}` })
+      }
+    } catch (error) {
+      setStatus({ kind: 'error', text: errorMessage(error) })
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const files = Array.from(event.clipboardData.items)
+      .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => file !== null)
+    if (files.length === 0) return
+    event.preventDefault()
+    void uploadFiles(files)
+  }
+
+  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    void uploadFiles(Array.from(event.target.files ?? []))
+  }
+
+  async function handleSave(publish: boolean) {
+    const title = form.title.trim()
+    const slug = form.slug.trim()
+    if (!title) {
+      setStatus({ kind: 'error', text: '请先填写标题' })
+      return
+    }
+    if (!slug || !SLUG_RE.test(slug)) {
+      setStatus({ kind: 'error', text: 'Slug 只允许字母、数字与连字符（不能以下划线或点开头）' })
+      return
+    }
+    if (!form.body.trim()) {
+      setStatus({ kind: 'error', text: '正文不能为空' })
+      return
+    }
+
+    setBusy(true)
+    try {
+      const result = await writerApi.save({
+        file: originalFile,
+        slug,
+        title,
+        summary: form.summary,
+        tags: splitTags(form.tags),
+        publishedAt: form.publishedAt,
+        body: form.body,
+        publish,
+      })
+      const next: EditorForm = { ...form, slug: result.slug, published: publish }
+      setForm(next)
+      setSnapshot(JSON.stringify(next))
+      setOriginalFile(result.file)
+      setSlugTouched(true)
+      setStatus({
+        kind: 'ok',
+        text: publish ? `已发布 content/posts/${result.file}` : `草稿已保存 content/posts/${result.file}`,
+      })
+      await refreshList()
+    } catch (error) {
+      setStatus({ kind: 'error', text: errorMessage(error) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="content-section page-section writer-page">
+      <header className="writer-header">
+        <div>
+          <span className="eyebrow">LOCAL WRITER · DEV ONLY</span>
+          <h1>写作台 <em>手记</em></h1>
+          <p>只在 npm run dev 下存在。保存会直接写入 content/posts，不联网、不登录、不经任何第三方服务。</p>
+        </div>
+        <div className="writer-header-actions">
+          <button className="text-button" type="button" onClick={startNew} disabled={busy}>
+            <Plus size={16} /> 新建
+          </button>
+          <button className="text-button" type="button" onClick={() => void refreshList()} disabled={busy || listLoading}>
+            <RefreshCw size={16} /> 刷新列表
+          </button>
+        </div>
+      </header>
+
+      {status && (
+        <p className={status.kind === 'ok' ? 'writer-status is-ok' : 'writer-status is-error'} role="status">
+          {status.text}
+        </p>
+      )}
+
+      <div className="writer-grid">
+        <aside className="writer-sidebar">
+          <div className="writer-panel-head">
+            <h2>文章</h2>
+            <span>{posts.length}</span>
+          </div>
+          {listLoading ? (
+            <p className="writer-hint">正在读取 content/posts……</p>
+          ) : posts.length === 0 ? (
+            <p className="writer-hint">还没有文章，从右侧写第一篇。</p>
+          ) : (
+            <ul className="writer-post-list">
+              {posts.map((post) => (
+                <li key={post.file}>
+                  <button
+                    type="button"
+                    className={`writer-post-item${post.file === originalFile ? ' is-active' : ''}`}
+                    onClick={() => void openPost(post.file)}
+                    disabled={busy}
+                  >
+                    <span className="writer-post-title">{post.title}</span>
+                    <span className="writer-post-meta">
+                      <em className={post.draft ? 'is-draft' : undefined}>{post.draft ? '草稿' : '已发布'}</em>
+                      {post.updated_at || post.published_at}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </aside>
+
+        <div className="writer-editor">
+          <div className="writer-panel-head">
+            <h2>{originalFile ? '编辑' : '新建'}</h2>
+            <span>{originalFile ?? draftFile}</span>
+          </div>
+
+          <div className="writer-fields">
+            <label>
+              标题
+              <input
+                type="text"
+                value={form.title}
+                maxLength={200}
+                placeholder="文章标题"
+                onChange={(event) => {
+                  const title = event.target.value
+                  setForm((prev) => ({
+                    ...prev,
+                    title,
+                    slug: slugTouched ? prev.slug : slugify(title),
+                  }))
+                }}
+              />
+            </label>
+
+            <label>
+              Slug
+              <input
+                type="text"
+                value={form.slug}
+                maxLength={64}
+                placeholder="hello-world"
+                onChange={(event) => {
+                  setSlugTouched(true)
+                  setForm((prev) => ({ ...prev, slug: event.target.value }))
+                }}
+              />
+              <small>/article/{form.slug || '…'} · 文件名 {form.slug || '…'}.md</small>
+            </label>
+
+            <label>
+              摘要
+              <textarea
+                rows={2}
+                value={form.summary}
+                maxLength={600}
+                placeholder="一句话摘要，会用在首页卡片、搜索与 RSS 里"
+                onChange={(event) => setForm((prev) => ({ ...prev, summary: event.target.value }))}
+              />
+            </label>
+
+            <div className="writer-field-row">
+              <label>
+                标签
+                <input
+                  type="text"
+                  value={form.tags}
+                  placeholder="工程实践, 前端"
+                  onChange={(event) => setForm((prev) => ({ ...prev, tags: event.target.value }))}
+                />
+              </label>
+              <label>
+                发布时间
+                <input
+                  type="date"
+                  value={form.publishedAt}
+                  onChange={(event) => setForm((prev) => ({ ...prev, publishedAt: event.target.value }))}
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="writer-body-head">
+            <span>正文 · Markdown</span>
+            <button
+              className="text-button"
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading || busy}
+            >
+              <ImagePlus size={15} /> {uploading ? '上传中…' : '插入图片'}
+            </button>
+          </div>
+
+          <textarea
+            ref={textareaRef}
+            className="writer-body"
+            value={form.body}
+            spellCheck={false}
+            placeholder={'正文从这里开始。\n\n## 小标题\n\n支持 GFM；也可以直接把截图粘贴进来。'}
+            onChange={(event) => setForm((prev) => ({ ...prev, body: event.target.value }))}
+            onPaste={handlePaste}
+          />
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/webp,image/avif"
+            multiple
+            hidden
+            onChange={handleFileChange}
+          />
+
+          <div className="writer-actions">
+            <button className="text-button" type="button" onClick={() => void handleSave(false)} disabled={busy}>
+              <Save size={16} /> {form.published ? '转为草稿' : '保存草稿'}
+            </button>
+            <button className="writer-publish" type="button" onClick={() => void handleSave(true)} disabled={busy}>
+              <Send size={16} /> {form.published ? '更新发布' : '发布'}
+            </button>
+            <span className={dirty ? 'writer-dirty is-dirty' : 'writer-dirty'}>{dirty ? '有未保存的修改' : '已同步'}</span>
+          </div>
+        </div>
+
+        <div className="writer-preview">
+          <div className="writer-panel-head">
+            <h2>实时预览</h2>
+            <span>{form.slug ? `/article/${form.slug}` : '未命名'}</span>
+          </div>
+          <div className="writer-preview-body">
+            {form.title && <h1 className="writer-preview-title">{form.title}</h1>}
+            {form.summary && <p className="writer-preview-summary">{form.summary}</p>}
+            {form.body.trim() ? (
+              <MarkdownArticle content={form.body} />
+            ) : (
+              <p className="writer-hint">在左侧正文里开始写，这里会用线上同一套 Markdown 渲染管线实时显示。</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}

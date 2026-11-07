@@ -263,6 +263,22 @@ async function main() {
   const headSitemap = await raw('/sitemap.xml', { method: 'HEAD', headers: gz })
   check('HEAD /sitemap.xml -> 200', headSitemap.status === 200, `实际 ${headSitemap.status}`)
 
+  console.log('\n[10] 本地写作台不得进入生产产物')
+  const assetNames = await fs.readdir(path.join(distDir, 'assets'))
+  const leaked = []
+  for (const name of assetNames) {
+    if (!name.endsWith('.js') && !name.endsWith('.css')) continue
+    const content = await fs.readFile(path.join(distDir, 'assets', name), 'utf8')
+    if (content.includes('__writer')) leaked.push(name)
+  }
+  check('dist 资源不含写入接口标记', leaked.length === 0, leaked.join(', '))
+  check('dist 没有 WriterPage chunk', !assetNames.some((name) => /WriterPage/i.test(name)))
+  const writerProbe = await raw('/__writer/api/posts', { headers: gz })
+  check(
+    '/__writer/api/posts 在生产服务上不是 JSON 接口',
+    !/application\/json/.test(writerProbe.headers['content-type'] ?? ''),
+    writerProbe.headers['content-type'],
+  )
 
   stop()
 

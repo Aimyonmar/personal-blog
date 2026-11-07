@@ -39,6 +39,13 @@ for (const post of posts) {
   await writeFile(path.join(dir, 'index.html'), injectArticleMeta(template, post, siteUrl), 'utf8')
 }
 
+// 写作台上传到 content/images 的图片随构建一起发布（dev 下由 writer 插件直接托管）
+try {
+  await cp(path.join(root, 'content', 'images'), path.join(distDir, 'images'), { recursive: true })
+} catch (error) {
+  if (error.code !== 'ENOENT') throw error
+}
+
 // 静态托管（GitHub Pages / Netlify 等）的 SPA 回退
 await cp(path.join(distDir, 'index.html'), path.join(distDir, '404.html'))
 

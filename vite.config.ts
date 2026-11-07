@@ -1,6 +1,7 @@
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import { generateContent } from './scripts/build-content.mjs'
+import { wasJustWritten, writerPlugin } from './scripts/dev-writer.mjs'
 
 declare const process: { env: Record<string, string | undefined> }
 
@@ -23,7 +24,11 @@ function localContent(): Plugin {
       server.watcher.add('content/posts')
       const refresh = (file: string) => {
         if (!isPost(file)) return
-        void generateContent().then(() => server.ws.send({ type: 'full-reload' }))
+        // 写作台保存时只刷新内容索引，不整页重载，避免打断正在编辑的表单
+        const reload = !wasJustWritten()
+        void generateContent().then(() => {
+          if (reload) server.ws.send({ type: 'full-reload' })
+        })
       }
       server.watcher.on('add', refresh)
       server.watcher.on('change', refresh)
@@ -52,7 +57,8 @@ function packageName(id: string) {
 export default defineConfig({
   // 部署到子路径（如 GitHub Pages 项目站点）时用 PUBLIC_BASE 覆盖，例如 /my-blog/
   base: normalizeBase(process.env.PUBLIC_BASE),
-  plugins: [react(), localContent()],
+  // writerPlugin 带 apply: 'serve'，生产构建不会注册任何写入接口
+  plugins: [react(), localContent(), writerPlugin()],
   server: {
     host: '0.0.0.0',
     allowedHosts: true,

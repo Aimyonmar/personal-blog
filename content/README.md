@@ -39,11 +39,11 @@ read_time: 8
 | `tags` | 否 | 标签数组，支持 `[a, b]` 行内写法或多行 `- a` 写法。 |
 | `published_at` | 建议 | 发布时间，`YYYY-MM-DD` 或 ISO 时间。缺省时排在列表最后。 |
 | `updated_at` | 否 | 更新时间，缺省同发布时间；用于 sitemap 的 lastmod。 |
-| `cover_image` | 否 | 封面图地址。放在 `public/images/` 下时写 `/images/xxx.png`。 |
+| `cover_image` | 否 | 封面图地址。图片放在 `content/images/` 下时写 `/images/xxx.png`。 |
 | `attachments` | 否 | 附件地址数组，页面底部会显示下载链接。文件放 `public/files/`。 |
 | `read_time` | 否 | 阅读分钟数。缺省按中文 350 字/分钟、英文 220 词/分钟估算。 |
 
-正文中的图片同样放在 `public/images/`，用 `/images/xxx.png` 引用，构建后会随站点一起发布，不会出现断图。
+正文中的图片放在 `content/images/`，用 `/images/xxx.png` 引用。`npm run dev` 时由本地写作台直接托管，`npm run build` 时会复制到 `dist/images/`，构建后随站点一起发布，不会出现断图。（`public/images/` 仍然可用，两处同名时 `content/images/` 优先。）
 
 ## 命令
 
@@ -55,14 +55,21 @@ npm run test:server
 npm run test:layout
 ```
 
-## 为什么不用「网页编辑器写盘」
+## 本地写作台（仅开发环境）
 
-可选方案有两种：
+`npm run dev` 启动后打开 `http://localhost:5173/write`（端口以终端输出为准），可以用表单写文章：
 
-- **直接写 Markdown 文件（当前方案）**：任何编辑器都能写，内容进 Git，可 diff、可回滚、可离线；代价是没有所见即所得的网页界面。
-- **本地 dev server 提供写文件接口**：能在网页里编辑，但需要额外开一个只在本机可用的写入服务，处理并发保存、路径校验、文件权限和误覆盖，复杂度明显高于收益。
+- 填标题、摘要、标签、发布时间，正文用 Markdown，右侧实时预览用的就是线上同一套 `MarkdownArticle` 渲染管线。
+- Slug 默认由标题生成，也可以手动改；保存时写入 `content/posts/<slug>.md`，frontmatter 与手写文章完全一致。
+- 默认「保存草稿」会写成 `_<slug>.md`，点「发布」才去掉下划线，转成正式文章。
+- 正文区可以直接粘贴截图，或点「插入图片」选择文件；图片写到 `content/images/`，正文自动插入 `/images/xxx.png`。
+- 左侧列出 `content/posts/` 下的全部文章（含草稿），点开即可继续编辑；有未保存修改时关闭页面会触发浏览器确认。
 
-博客是单人写作，文件方式已经足够顺手，因此选择前者。需要草稿就先命名成 `_draft.md`。
+写作台只存在于 Vite dev server：写文件接口由仅 `apply: 'serve'` 的插件注册，生产构建里既没有这些接口，也没有 `/write` 路由。构建 / 部署仍然只读 Markdown 文件，不依赖任何云端服务。
+
+## 为什么保留「直接写 Markdown 文件」
+
+任何编辑器都能写，内容进 Git，可 diff、可回滚、可离线。网页写作台只是可选的便利入口，底层产物始终是普通 Markdown 文件。
 
 ## 部署到任意静态托管
 
