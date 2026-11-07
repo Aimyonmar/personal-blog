@@ -16,7 +16,6 @@ src/generated/
 *.local
 *.pem
 *.key
-.wbapp_*.genie.local
 
 # 工具与临时目录
 .config-emit-backup/
