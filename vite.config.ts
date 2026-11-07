@@ -4,6 +4,13 @@ import { generateContent } from './scripts/build-content.mjs'
 
 declare const process: { env: Record<string, string | undefined> }
 
+/** 归一化部署子路径：兼容 `/`、`/repo`、`/repo/`，避免拼出 `//` 或缺失首尾斜杠。 */
+function normalizeBase(value: string | undefined): string {
+  const collapsed = (value || '/').replace(/\/{2,}/g, '/')
+  const withLeading = collapsed.startsWith('/') ? collapsed : `/${collapsed}`
+  return withLeading.endsWith('/') ? withLeading : `${withLeading}/`
+}
+
 /** 本地内容：构建前生成元数据；dev 下监听 content/ 变化并刷新页面。 */
 function localContent(): Plugin {
   const isPost = (file: string) => file.replace(/\\/g, '/').includes('/content/posts/') && file.endsWith('.md')
@@ -44,7 +51,7 @@ function packageName(id: string) {
 
 export default defineConfig({
   // 部署到子路径（如 GitHub Pages 项目站点）时用 PUBLIC_BASE 覆盖，例如 /my-blog/
-  base: process.env.PUBLIC_BASE || '/',
+  base: normalizeBase(process.env.PUBLIC_BASE),
   plugins: [react(), localContent()],
   server: {
     host: '0.0.0.0',

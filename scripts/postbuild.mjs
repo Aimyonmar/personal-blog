@@ -12,8 +12,13 @@ import { injectArticleMeta, renderRobots, renderRss, renderSitemap } from './blo
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const distDir = path.join(root, 'dist')
 const origin = (process.env.PUBLIC_ORIGIN || 'https://example.com').replace(/\/$/, '')
-const base = process.env.PUBLIC_BASE || '/'
-const normalizedBase = base.endsWith('/') ? base : `${base}/`
+// 需与 vite.config.ts 的归一化保持一致，否则 og:image 的匹配会失效
+function normalizeBase(value) {
+  const collapsed = (value || '/').replace(/\/{2,}/g, '/')
+  const withLeading = collapsed.startsWith('/') ? collapsed : `/${collapsed}`
+  return withLeading.endsWith('/') ? withLeading : `${withLeading}/`
+}
+const normalizedBase = normalizeBase(process.env.PUBLIC_BASE)
 // PUBLIC_ORIGIN 是站点的完整根地址（部署在子路径时应包含该子路径）
 const siteUrl = origin
 
