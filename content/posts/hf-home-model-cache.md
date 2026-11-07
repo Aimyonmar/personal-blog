@@ -4,8 +4,8 @@ summary: 模型被下到旧项目的目录，程序却按项目内目录判断�
 tags: [工程实践, 复盘, Python, 环境配置]
 published_at: 2026-11-08
 updated_at: 2026-11-08
-series: 把博客搬回自己手里
-series_order: 2
+series: Translator 改进记录
+series_order: 1
 ---
 
 ## 起因：模型又被"首次启动"了一次
