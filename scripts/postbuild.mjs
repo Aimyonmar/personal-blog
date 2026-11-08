@@ -7,7 +7,7 @@ import { cp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadPosts } from './content.mjs'
-import { buildSeries, injectArticleMeta, injectSeriesMeta, renderRobots, renderRss, renderSitemap } from './blog-data.mjs'
+import { STATIC_PAGES, buildSeries, injectArticleMeta, injectPageMeta, injectSeriesMeta, renderRobots, renderRss, renderSitemap } from './blog-data.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const distDir = path.join(root, 'dist')
@@ -44,6 +44,13 @@ for (const series of seriesList) {
   const dir = path.join(distDir, 'series', series.slug)
   await mkdir(dir, { recursive: true })
   await writeFile(path.join(dir, 'index.html'), injectSeriesMeta(template, series, siteUrl), 'utf8')
+}
+
+// /tags、/about 没有动态数据，但同样需要真实入口页，静态托管才不会返回 404
+for (const page of STATIC_PAGES) {
+  const dir = path.join(distDir, page.dir)
+  await mkdir(dir, { recursive: true })
+  await writeFile(path.join(dir, 'index.html'), injectPageMeta(template, page, siteUrl), 'utf8')
 }
 
 // 写作台上传到 content/images 的图片随构建一起发布（dev 下由 writer 插件直接托管）

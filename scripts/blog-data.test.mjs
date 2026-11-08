@@ -4,8 +4,10 @@ import path from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { loadPosts, parseFrontmatter } from './content.mjs'
 import {
+  STATIC_PAGES,
   buildSeries,
   injectArticleMeta,
+  injectPageMeta,
   injectSeriesMeta,
   renderRss,
   renderRobots,
@@ -246,5 +248,37 @@ describe('injectSeriesMeta', () => {
     expect(html).toContain('content="https://example.com/series/build-log"')
     expect(html).toContain('<link rel="canonical" href="https://example.com/series/build-log" />')
     expect(html).not.toContain('旧标题')
+  })
+})
+
+describe('injectPageMeta', () => {
+  const template = `<!doctype html><html><head>
+    <meta name="description" content="旧描述" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="旧标题" />
+    <meta property="og:description" content="旧描述" />
+    <meta property="og:url" content="https://example.com/personal-blog/" />
+    <meta name="twitter:title" content="旧标题" />
+    <meta name="twitter:description" content="旧描述" />
+    <title>旧标题</title>
+  </head><body></body></html>`
+
+  it('静态入口页的 meta 与 SPA 文案一致，并带子路径 canonical', () => {
+    const html = injectPageMeta(template, STATIC_PAGES[0], 'https://example.com/personal-blog')
+    expect(html).toContain('<title>标签分类 | 微光手记</title>')
+    expect(html).toContain('name="description" content="按标签浏览微光手记的全部文章。"')
+    expect(html).toContain('<meta property="og:type" content="website" />')
+    expect(html).toContain('property="og:title" content="标签分类 | 微光手记"')
+    expect(html).toContain('content="https://example.com/personal-blog/tags"')
+    expect(html).toContain('<link rel="canonical" href="https://example.com/personal-blog/tags" />')
+    expect(html).not.toContain('旧标题')
+    expect(html).not.toContain('旧描述')
+  })
+
+  it('覆盖 /tags 与 /about 两个路由', () => {
+    expect(STATIC_PAGES.map((page) => page.path)).toEqual(['/tags', '/about'])
+    const html = injectPageMeta(template, STATIC_PAGES[1], origin)
+    expect(html).toContain('<title>关于这个博客 | 微光手记</title>')
+    expect(html).toContain('rel="canonical" href="https://example.com/about"')
   })
 })

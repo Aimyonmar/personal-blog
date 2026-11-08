@@ -295,3 +295,36 @@ export function injectSeriesMeta(template, series, origin) {
 
   return html.replace('</head>', `  <link rel="canonical" href="${escapeHtml(canonical)}" />\n  </head>`)
 }
+
+/**
+ * 静态入口页清单：这类路由没有动态数据，但必须在构建时产出真实 index.html，
+ * 否则 GitHub Pages 会返回 404 并靠 404.html 兜底。meta 文案需与页面内 usePageMeta 一致。
+ */
+export const STATIC_PAGES = [
+  { dir: 'tags', path: '/tags', title: '标签分类', description: '按标签浏览微光手记的全部文章。' },
+  {
+    dir: 'about',
+    path: '/about',
+    title: '关于这个博客',
+    description: '微光手记的由来：一个关于技术实践、产品思考和普通生活的个人博客。',
+  },
+]
+
+/** 把静态入口页的 title / description / Open Graph / canonical 注入 SPA 的 index.html。 */
+export function injectPageMeta(template, page, origin) {
+  const title = page.title.includes(SITE.name) ? page.title : `${page.title} | ${SITE.name}`
+  const canonical = `${origin}${page.path}`
+
+  let html = template
+    .replace(/<title>[\s\S]*?<\/title>/, `<title>${escapeHtml(title)}</title>`)
+    .replace(/(<meta name="description" content=")[^"]*(")/, `$1${escapeHtml(page.description)}$2`)
+
+  html = setMeta(html, 'og:type', 'website')
+  html = setMeta(html, 'og:title', title)
+  html = setMeta(html, 'og:description', page.description)
+  html = setMeta(html, 'og:url', canonical)
+  html = setMeta(html, 'twitter:title', title)
+  html = setMeta(html, 'twitter:description', page.description)
+
+  return html.replace('</head>', `  <link rel="canonical" href="${escapeHtml(canonical)}" />\n  </head>`)
+}

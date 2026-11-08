@@ -263,7 +263,41 @@ async function main() {
   const headSitemap = await raw('/sitemap.xml', { method: 'HEAD', headers: gz })
   check('HEAD /sitemap.xml -> 200', headSitemap.status === 200, `实际 ${headSitemap.status}`)
 
-  console.log('\n[10] 本地写作台不得进入生产产物')
+  console.log('\n[10] 静态入口页（/tags、/about 须为真实 index.html，不靠 404.html 兜底）')
+  const assetRefs = (html) =>
+    [...html.matchAll(/(?:src|href)="(\/[^"]*assets\/[^"]+\.(?:js|css))"/g)].map((match) => match[1])
+  const homeAssets = assetRefs(indexHtml)
+  const staticPages = [
+    { dir: 'tags', title: '标签分类 | 微光手记', description: '按标签浏览微光手记的全部文章。' },
+    {
+      dir: 'about',
+      title: '关于这个博客 | 微光手记',
+      description: '微光手记的由来：一个关于技术实践、产品思考和普通生活的个人博客。',
+    },
+  ]
+  for (const page of staticPages) {
+    const file = path.join(distDir, page.dir, 'index.html')
+    const exists = await fs.access(file).then(() => true, () => false)
+    check(`dist/${page.dir}/index.html 存在`, exists)
+    if (!exists) continue
+    const html = await fs.readFile(file, 'utf8')
+    check(`${page.dir} 页 title 与 SPA 一致`, html.includes(`<title>${page.title}</title>`))
+    check(`${page.dir} 页 description 与 SPA 一致`, html.includes(`<meta name="description" content="${page.description}" />`))
+    check(`${page.dir} 页 og/twitter 标题与 title 一致`, html.includes(`<meta property="og:title" content="${page.title}" />`) && html.includes(`<meta name="twitter:title" content="${page.title}" />`))
+    const canonical = /rel="canonical" href="([^"]+)"/.exec(html)?.[1]
+    const ogUrl = /property="og:url" content="([^"]+)"/.exec(html)?.[1]
+    const ogImage = /property="og:image" content="([^"]+)"/.exec(html)?.[1]
+    check(`${page.dir} 页 canonical 指向自身`, Boolean(canonical?.endsWith(`/${page.dir}`)), String(canonical))
+    check(`${page.dir} 页 og:url 与 canonical 一致`, canonical === ogUrl, `${canonical} vs ${ogUrl}`)
+    check(`${page.dir} 页 og:image 为绝对地址`, /^https?:\/\/[^"]+\/og-default\.png$/.test(ogImage ?? ''), String(ogImage))
+    check(
+      `${page.dir} 页资源路径与首页一致（子路径不丢前缀）`,
+      homeAssets.length > 0 && assetRefs(html).join('|') === homeAssets.join('|'),
+      `${assetRefs(html).join(',')} vs ${homeAssets.join(',')}`,
+    )
+  }
+
+  console.log('\n[11] 本地写作台不得进入生产产物')
   const assetNames = await fs.readdir(path.join(distDir, 'assets'))
   const leaked = []
   for (const name of assetNames) {
