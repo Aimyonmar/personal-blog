@@ -1,9 +1,27 @@
+import type { CSSProperties } from 'react'
 import { ArrowDown, Sparkles } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { usePageMeta } from '../app/usePageMeta'
 import { ArticleCard } from '../components/ArticleCard'
 import { EmptyState } from '../components/States'
 import { listPublishedArticles } from '../features/articles/localContent'
+
+const SLOGAN_MAIN = '这里记录工程实践、产品思考与日常灵感。'
+const SLOGAN_EM = '不是标准答案，只是把走过的路整理成可以再次出发的坐标。'
+const TAGLINE = '把复杂的事，写得清楚一点。'
+
+/** 逐字拆成内联块，只做透明度/位移入场，文字宽度不变，不产生布局跳动。 */
+function renderChars(text: string, offset: number, className: string) {
+  return Array.from(text).map((char, index) => (
+    <span
+      key={`${className}-${offset + index}`}
+      className={className}
+      style={{ '--char-index': offset + index } as CSSProperties}
+    >
+      {char}
+    </span>
+  ))
+}
 
 export function HomePage() {
   const articles = listPublishedArticles()
@@ -16,25 +34,38 @@ export function HomePage() {
 
   return (
     <>
-      <section className="hero-section">
-        <div className="hero-copy">
-          <span className="eyebrow"><Sparkles size={14} /> TECH · LIFE · NOTES</span>
-          <h1 className="hero-slogan">这里记录工程实践、产品思考与日常灵感。<br /><em>不是标准答案，只是把走过的路整理成可以再次出发的坐标。</em></h1>
-          <p className="hero-tagline">把复杂的事，写得清楚一点。</p>
-          <div className="hero-actions">
-            <a className="primary-button" href="#latest">阅读最新文章 <ArrowDown size={17} /></a>
-            <Link className="text-link" to="/about">认识作者</Link>
+      <div className="hero-band">
+        <section className="hero-section">
+          <div className="hero-copy">
+            <span className="eyebrow"><Sparkles size={14} /> TECH · LIFE · NOTES</span>
+            <h1 className="hero-slogan" aria-label={`${SLOGAN_MAIN}${SLOGAN_EM}`}>
+              <span aria-hidden="true">{renderChars(SLOGAN_MAIN, 0, 'hero-char')}</span>
+              <br />
+              <span className="hero-slogan-em" aria-hidden="true">{renderChars(SLOGAN_EM, SLOGAN_MAIN.length, 'hero-char')}</span>
+            </h1>
+            <p className="hero-tagline" aria-label={TAGLINE}>
+              <span aria-hidden="true">{renderChars(TAGLINE, 0, 'hero-tagline-char')}</span>
+              <span className="type-caret" aria-hidden="true" />
+            </p>
+            <div className="hero-actions">
+              <a className="primary-button" href="#latest">阅读最新文章 <ArrowDown size={17} /></a>
+              <Link className="text-link" to="/about">认识作者</Link>
+            </div>
           </div>
-        </div>
-        <aside className="hero-note" aria-label="站点介绍">
-          <span className="note-number">01</span>
-          <div>
-            <span className="note-kicker">FIELD NOTES</span>
-            <p>保持好奇，持续构建。<br />认真对待每一个微小问题。</p>
-          </div>
-          <div className="orbit-mark" aria-hidden="true"><span /></div>
-        </aside>
-      </section>
+          <aside className="hero-note" aria-label="站点介绍">
+            <span className="note-number">01</span>
+            <div>
+              <span className="note-kicker">FIELD NOTES</span>
+              <p>保持好奇，持续构建。<br />认真对待每一个微小问题。</p>
+            </div>
+            <div className="orbit-mark" aria-hidden="true"><span /></div>
+          </aside>
+        </section>
+        <a className="hero-scroll-cue" href="#latest">
+          <span>向下滚动 · 查看最新文章</span>
+          <ArrowDown size={16} aria-hidden="true" />
+        </a>
+      </div>
 
       <div className="marquee-band" aria-hidden="true">
         <div className="marquee-track">

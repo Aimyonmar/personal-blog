@@ -3,7 +3,6 @@ import { useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { ReadingPreferencesPanel } from './ReadingPreferencesPanel'
 import { SearchCommand } from './SearchCommand'
-import { SideToolbar } from './SideToolbar'
 
 const navItems = [
   { to: '/', label: '文章' },
@@ -43,20 +42,20 @@ export function Layout() {
         </div>
       </header>
 
-      <SideToolbar />
-
       <main id="main-content">
         <Outlet />
       </main>
 
-      <footer className="site-footer">
-        <div>
-          <span className="footer-wordmark" aria-hidden="true">微光手记</span>
-          <p>在代码、产品与生活之间，记录值得复访的微小发现。</p>
-        </div>
-        <div className="footer-meta">
-          <span>TECH · LIFE · NOTES</span>
-          <span>© {new Date().getFullYear()} GLOW NOTES</span>
+      <footer className="footer-band">
+        <div className="site-footer">
+          <div>
+            <span className="footer-wordmark" aria-hidden="true">微光手记</span>
+            <p>在代码、产品与生活之间，记录值得复访的微小发现。</p>
+          </div>
+          <div className="footer-meta">
+            <span>TECH · LIFE · NOTES</span>
+            <span>© {new Date().getFullYear()} GLOW NOTES</span>
+          </div>
         </div>
       </footer>
     </div>

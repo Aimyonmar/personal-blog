@@ -34,6 +34,11 @@ const components: Components = {
     <img {...props} src={resolveImageSrc(src)} loading="lazy" decoding="async" />
   ),
   pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
+  table: ({ children }) => (
+    <div className="table-scroll">
+      <table>{children}</table>
+    </div>
+  ),
   h2: heading('h2'),
   h3: heading('h3'),
 }

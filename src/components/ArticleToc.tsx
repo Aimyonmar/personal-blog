@@ -1,3 +1,4 @@
+import { ChevronDown } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 interface TocItem {
@@ -13,6 +14,7 @@ interface TocItem {
 export function ArticleToc({ content }: { content: string }) {
   const [items, setItems] = useState<TocItem[]>([])
   const [activeId, setActiveId] = useState('')
+  const [open, setOpen] = useState(false)
 
   useEffect(() => {
     const root = document.getElementById('article-content')
@@ -53,8 +55,17 @@ export function ArticleToc({ content }: { content: string }) {
   if (items.length === 0) return null
 
   return (
-    <nav className="article-toc" aria-label="文章目录">
-      <span className="article-toc-kicker">ON THIS PAGE</span>
+    <nav className={`article-toc sidebar-card${open ? ' is-open' : ''}`} aria-label="文章目录">
+      <button
+        type="button"
+        className="toc-toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span className="article-toc-kicker">ON THIS PAGE</span>
+        <ChevronDown size={16} aria-hidden="true" />
+      </button>
+      <span className="article-toc-kicker toc-kicker-desktop">ON THIS PAGE</span>
       <ol>
         {items.map((item) => (
           <li key={item.id} className={item.level === 3 ? 'toc-sub' : undefined}>

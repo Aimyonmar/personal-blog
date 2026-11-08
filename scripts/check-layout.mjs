@@ -27,6 +27,10 @@ const DEBUG_PORT = Number(process.env.LAYOUT_DEBUG_PORT || 9336)
 const WIDTHS = (process.env.LAYOUT_WIDTHS || '1920,1536,1440,1280,1024,900,768,540,375')
   .split(',')
   .map(Number)
+const PATHS = (process.env.LAYOUT_PATHS || '/')
+  .split(/[,\s]+/)
+  .map((item) => item.trim())
+  .filter(Boolean)
 
 const CHROME_CANDIDATES = [
   process.env.CHROME_PATH,
@@ -147,41 +151,45 @@ async function main() {
     })
 
   await send('Page.enable')
-  await send('Page.navigate', { url: `http://127.0.0.1:${SERVER_PORT}/` })
-  await sleep(8000) // 等 SPA 渲染与数据加载
-
-  console.log('\n视口宽 | 文档宽 | 溢出 | 页头 left/宽 | 跑马灯宽 | 结论')
-  console.log('-------|--------|------|-------------|----------|------')
 
   const failures = []
-  for (const width of WIDTHS) {
-    await send('Emulation.setDeviceMetricsOverride', {
-      width,
-      height: 900,
-      deviceScaleFactor: 1,
-      mobile: false,
-    })
-    await sleep(600)
+  for (const routePath of PATHS) {
+    await send('Page.navigate', { url: `http://127.0.0.1:${SERVER_PORT}${routePath}` })
+    await sleep(6000) // 等 SPA 渲染与数据加载
 
-    const res = await send('Runtime.evaluate', {
-      expression: `(() => {
-        const de = document.documentElement;
-        const g = (s) => { const e = document.querySelector(s); if (!e) return null;
-          const b = e.getBoundingClientRect(); return { l: Math.round(b.left), w: Math.round(b.width) }; };
-        return { iw: window.innerWidth, sw: de.scrollWidth, ov: de.scrollWidth - de.clientWidth,
-          header: g('.site-header'), marquee: g('.marquee-band') };
-      })()`,
-      returnByValue: true,
-    })
-    const v = res.result.result.value
-    const ok = v.ov <= 0 && (!v.header || v.header.l >= -1)
-    if (!ok) failures.push(`${v.iw}px 视口横向溢出 ${v.ov}px`)
+    console.log(`\n路径 ${routePath}`)
+    console.log('视口宽 | 文档宽 | 溢出 | 页头 left/宽 | 内容宽 | 结论')
+    console.log('-------|--------|------|-------------|--------|------')
 
-    console.log(
-      `${String(v.iw).padStart(6)} | ${String(v.sw).padStart(6)} | ${String(v.ov).padStart(4)} | ` +
-        `${String(v.header?.l).padStart(6)} /${String(v.header?.w).padStart(5)} | ` +
-        `${String(v.marquee?.w).padStart(8)} | ${ok ? '正常' : '**溢出**'}`,
-    )
+    for (const width of WIDTHS) {
+      await send('Emulation.setDeviceMetricsOverride', {
+        width,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      })
+      await sleep(600)
+
+      const res = await send('Runtime.evaluate', {
+        expression: `(() => {
+          const de = document.documentElement;
+          const g = (s) => { const e = document.querySelector(s); if (!e) return null;
+            const b = e.getBoundingClientRect(); return { l: Math.round(b.left), w: Math.round(b.width) }; };
+          return { iw: window.innerWidth, sw: de.scrollWidth, ov: de.scrollWidth - de.clientWidth,
+            header: g('.site-header'), content: g('.article-main, .hero-section') };
+        })()`,
+        returnByValue: true,
+      })
+      const v = res.result.result.value
+      const ok = v.ov <= 0 && (!v.header || v.header.l >= -1)
+      if (!ok) failures.push(`${routePath} ${v.iw}px 视口横向溢出 ${v.ov}px`)
+
+      console.log(
+        `${String(v.iw).padStart(6)} | ${String(v.sw).padStart(6)} | ${String(v.ov).padStart(4)} | ` +
+          `${String(v.header?.l).padStart(6)} /${String(v.header?.w).padStart(5)} | ` +
+          `${String(v.content?.w).padStart(6)} | ${ok ? '正常' : '**溢出**'}`,
+      )
+    }
   }
 
   ws.close()
