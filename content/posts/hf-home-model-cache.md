@@ -10,7 +10,7 @@ series_order: 1
 
 ## 起因：模型又被"首次启动"了一次
 
-启动时模型被下到 `D:\tencent\workbuddy-workplace\settings\hf\hub`。那是一个已放弃项目的遗留路径，程序本体却在项目内 `.runtime\hf` 找缓存。结果就是：判定首次启动、重新下载、1.5GB 白下。
+启动时模型被下到 `<旧工作副本>\settings\hf\hub`。那是一个已放弃项目的遗留路径，程序本体却在项目内 `.runtime\hf` 找缓存。结果就是：判定首次启动、重新下载、1.5GB 白下。
 
 控制台当时打印的是「检测到系统已设 HF_HOME，模型与该目录共用，不会重复占用空间」。这句话在"共用"成立时是对的，但程序根本没有去那个目录找。
 
@@ -18,7 +18,7 @@ series_order: 1
 
 | 作用域 | HF_HOME |
 | --- | --- |
-| 用户环境变量（HKCU\Environment） | `D:\tencent\workbuddy-workplace\settings\hf` |
+| 用户环境变量（HKCU\Environment） | `<旧工作副本>\settings\hf` |
 | 系统环境变量（Machine） | 空 |
 | `HF_HUB_CACHE` | 未设 |
 
@@ -80,10 +80,10 @@ set "HF_HOME=%~dp0.runtime\hf"
 改完不能只在干净环境里测，否则等于没测。验证时先手动把旧值灌回去：
 
 ```text
-env HF_HOME=D:\tencent\workbuddy-workplace\settings\hf
+env HF_HOME=<旧工作副本>\settings\hf
 
 准备模型.py --check
-→ D:\my-project\Translator\.runtime\hf\hub\models--kotoba-tech--...
+→ <项目目录>\.runtime\hf\hub\models--kotoba-tech--...
 → exit=0
 
 import core.asr 之前 HF_HOME=旧目录；之后 = 项目 .runtime\hf
